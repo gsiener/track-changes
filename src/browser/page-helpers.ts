@@ -157,9 +157,49 @@ export async function fillFirst(
 }
 
 /**
- * Close any open dialogs by pressing Escape.
+ * Close any open dialogs - tries multiple strategies.
  */
 export async function dismissDialogs(page: Page): Promise<void> {
+  // First, try to click "I understand" button (view history dialog)
+  try {
+    const understoodBtn = await page.$('button:has-text("I understand")');
+    if (understoodBtn) {
+      await understoodBtn.click();
+      logger.debug("Clicked 'I understand' button");
+      await page.waitForTimeout(TIMEOUTS.BUTTON_ACTION);
+      return;
+    }
+  } catch {
+    // Continue
+  }
+
+  // Try to click "Got it" button (other onboarding dialogs)
+  try {
+    const gotItBtn = await page.$('button:has-text("Got it")');
+    if (gotItBtn) {
+      await gotItBtn.click();
+      logger.debug("Clicked 'Got it' button");
+      await page.waitForTimeout(TIMEOUTS.BUTTON_ACTION);
+      return;
+    }
+  } catch {
+    // Continue
+  }
+
+  // Try to click dialog close button
+  try {
+    const closeBtn = await page.$('[aria-label="Close"], [aria-label="Dismiss"]');
+    if (closeBtn) {
+      await closeBtn.click();
+      logger.debug("Clicked close button");
+      await page.waitForTimeout(TIMEOUTS.BUTTON_ACTION);
+      return;
+    }
+  } catch {
+    // Continue
+  }
+
+  // Fallback: press Escape
   await page.keyboard.press("Escape");
   await page.waitForTimeout(TIMEOUTS.KEY_PRESS);
   await page.keyboard.press("Escape");

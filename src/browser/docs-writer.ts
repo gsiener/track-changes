@@ -159,6 +159,9 @@ export class DocsWriter {
 
   private async applySuggestion(suggestion: TextSuggestion): Promise<void> {
     await withRetry(async () => {
+      // Dismiss any dialogs first
+      await dismissDialogs(this.page);
+
       // Open Find and Replace dialog via Edit menu
       await this.openFindReplaceDialog();
 
