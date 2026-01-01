@@ -16,27 +16,25 @@ const program = new Command();
 
 program
   .name("track-changes")
-  .description("CLI tool for Claude to review Google Docs with suggested edits")
-  .version("0.1.0");
-
-program
-  .command("review")
-  .description("Review a Google Doc and make suggestions")
-  .argument("<url>", "Google Docs URL to review")
-  .option("-p, --prompt <text>", "Optional focus instructions for Claude")
-  .option("--dry-run", "Analyze document but don't apply changes")
+  .description("Claude reviews Google Docs and makes suggested edits")
+  .version("0.1.0")
+  .argument("[url]", "Google Docs URL to review")
   .option("-v, --verbose", "Enable verbose/debug logging")
-  .option("-q, --quiet", "Only show errors and final results")
-  .action(async (url: string, options: { prompt?: string; dryRun?: boolean; verbose?: boolean; quiet?: boolean }) => {
-    // Set log level based on flags
+  .action(async (url: string | undefined, options: { verbose?: boolean }) => {
+    // If no URL provided and not a subcommand, show help
+    if (!url) {
+      program.help();
+      return;
+    }
+
+    // Set log level
     if (options.verbose) {
       logger.setLevel("debug");
-    } else if (options.quiet) {
-      logger.setLevel("error");
     }
+
     try {
       const config = loadConfig();
-      logger.info("Starting document review", { url, dryRun: options.dryRun ?? false });
+      logger.info("Starting document review", { url });
 
       // Extract document ID from URL
       const docId = extractDocId(url);
@@ -48,7 +46,7 @@ program
 
       logger.info("Document ID extracted", { docId });
 
-      // 1. Fetch document content
+      // 1. Read the document
       let document: DocumentContent;
       const session = new BrowserSession();
 
@@ -56,102 +54,81 @@ program
 
       console.log("\n🔍 Reading document...");
       if (hasServiceAccount) {
-        // Use API if service account is configured and file exists
         logger.info("Fetching document via API...");
         const reader = new DocsReader(config);
         document = await reader.fetchDocument(docId);
       } else {
-        // Fall back to browser-based reading
-        logger.info("No service account configured, using browser to read document...");
-        const context = await session.launch(true); // headless
+        logger.info("Using browser to read document...");
+        const context = await session.launch(true);
         const page = await context.newPage();
         const browserReader = new BrowserDocsReader(page);
         document = await browserReader.readDocument(url);
       }
 
       console.log(`   📄 "${document.title}"`);
-      console.log(`   📊 ${document.body.length} characters, ${document.comments.length} comments`);
-      logger.info("Document fetched", { title: document.title });
+      console.log(`   📊 ${document.body.length} chars, ${document.comments.length} comments`);
 
-      // 2. Send to Claude for analysis
+      // 2. Analyze with Claude
       console.log("\n🤖 Analyzing with Claude...");
-      logger.info("Sending to Claude for analysis...");
       const analyzer = new DocumentAnalyzer(config);
-      const review = await analyzer.analyze(document, options.prompt);
-
-      logger.info("Analysis complete", {
-        suggestions: review.suggestions.length,
-        commentReplies: review.commentReplies.length,
-        newComments: review.newComments.length,
-      });
+      const review = await analyzer.analyze(document);
 
       // Show what Claude found
+      const totalActions = review.suggestions.length + review.commentReplies.length + review.newComments.length;
+      console.log(`   Found ${totalActions} actions to take`);
+
       if (review.suggestions.length > 0) {
         console.log("\n📝 Suggestions:");
         for (const s of review.suggestions) {
-          console.log(`  - "${s.findText.slice(0, 40)}..." → "${s.replaceWith.slice(0, 40)}..."`);
-          if (s.rationale) console.log(`    Reason: ${s.rationale}`);
+          console.log(`  • "${s.findText.slice(0, 40)}..." → "${s.replaceWith.slice(0, 40)}..."`);
         }
       }
 
       if (review.commentReplies.length > 0) {
-        console.log("\n💬 Comment Replies:");
+        console.log("\n💬 Replies:");
         for (const r of review.commentReplies) {
-          console.log(`  - Reply to "${r.commentQuote.slice(0, 30)}...": ${r.reply.slice(0, 50)}...`);
+          console.log(`  • "${r.reply.slice(0, 60)}..."`);
         }
       }
 
-      if (review.newComments.length > 0) {
-        console.log("\n📌 New Comments:");
-        for (const c of review.newComments) {
-          console.log(`  - On "${c.anchorText.slice(0, 30)}...": ${c.comment.slice(0, 50)}...`);
-        }
-      }
+      // 3. Apply changes to document
+      if (totalActions > 0) {
+        console.log("\n⏳ Applying changes...");
 
-      // 3. Apply suggestions via Playwright (unless dry-run)
-      if (options.dryRun) {
-        logger.info("Dry run - skipping browser automation");
-        console.log("\n✅ Dry run complete. Use without --dry-run to apply changes.");
-        await session.close();
+        let context = session.getContext();
+        if (!context) {
+          context = await session.launch(true);
+        }
+        const page = await context.newPage();
+        const writer = new DocsWriter(page);
+
+        await writer.navigateToDocument(buildDocsUrl(docId));
+        await writer.enableSuggestionMode();
+        await writer.applyAllChanges(review);
+
+        console.log("\n✅ Done! Check your document:");
+        console.log(`   🔗 ${buildDocsUrl(docId)}`);
       } else {
-        console.log("\n⏳ Applying changes to document...");
-        logger.info("Applying changes via browser...");
-
-        try {
-          // Get or create browser context
-          let context = session.getContext();
-          if (!context) {
-            context = await session.launch(true); // headless
-          }
-          const page = await context.newPage();
-          const writer = new DocsWriter(page);
-
-          await writer.navigateToDocument(buildDocsUrl(docId));
-          await writer.enableSuggestionMode();
-          await writer.applyAllChanges(review);
-
-          logger.info("All changes applied successfully");
-          console.log("\n✅ Review complete! Check your document for suggestions.");
-          console.log(`   🔗 ${buildDocsUrl(docId)}`);
-        } finally {
-          await session.close();
-        }
+        console.log("\n✅ No changes needed.");
       }
+
+      await session.close();
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error("Review failed", { error: errorMessage });
 
-      // Provide helpful error messages
       if (errorMessage.includes("ANTHROPIC_API_KEY")) {
-        console.error("\n❌ Missing Anthropic API key. Set ANTHROPIC_API_KEY in your .env file.\n");
+        console.error("\n❌ Missing API key. Set ANTHROPIC_API_KEY in .env\n");
       } else if (errorMessage.includes("session") || errorMessage.includes("storage")) {
-        console.error("\n❌ Browser session issue. Try running 'track-changes login' first.\n");
+        console.error("\n❌ Not logged in. Run: track-changes login\n");
       } else if (errorMessage.includes("timeout")) {
-        console.error("\n❌ Operation timed out. The document may be loading slowly. Try again.\n");
+        console.error("\n❌ Timed out. Try again.\n");
       } else {
-        console.error(`\n❌ Review failed: ${errorMessage}\n`);
-        console.error("   Use --verbose for detailed debugging output.\n");
+        console.error(`\n❌ Failed: ${errorMessage}\n`);
+        if (!options.verbose) {
+          console.error("   Use -v for debug output.\n");
+        }
       }
       process.exit(1);
     }
@@ -159,33 +136,27 @@ program
 
 program
   .command("login")
-  .description("Manually log into Google account for browser automation")
+  .description("Log into Google for browser automation")
   .action(async () => {
     try {
       const config = loadConfig();
-      logger.info("Opening browser for manual Google login...");
-      console.log("\n🔐 Please log into Google with the Claude account:");
+      console.log("\n🔐 Log into Google:");
       console.log(`   Email: ${config.claudeGoogleEmail}`);
-      console.log("\nA browser will open. Log in, then it will auto-detect and save.\n");
+      console.log("\nA browser will open. Log in, then close it.\n");
 
       const session = new BrowserSession();
       const page = await session.launchForLogin();
 
-      // Navigate to Google Docs directly - will redirect to login if needed
       await page.goto("https://docs.google.com");
 
-      console.log("⏳ Waiting for you to log in...");
-
-      // Wait until we're on docs.google.com (not accounts.google.com)
+      console.log("⏳ Waiting for login...");
       await page.waitForURL("https://docs.google.com/**", { timeout: 120000 });
 
       console.log("✅ Login detected!");
-
-      // Save session
       await session.saveSession();
       await session.close();
 
-      console.log("✅ Session saved! You can now use the review command.");
+      console.log("✅ Session saved! You can now review documents.\n");
 
     } catch (error) {
       logger.error("Login failed", { error: String(error) });

@@ -53,11 +53,14 @@ Output only valid JSON, no markdown fences or explanation.`;
 }
 
 // Check if a comment is @mentioning Claude
-function isClaudeMention(text: string): boolean {
+// Exported for testing
+export function isClaudeMention(text: string): boolean {
+  // Require start of string or whitespace before @
+  // This prevents matching email addresses like email@claude.com
   const mentionPatterns = [
-    /@claude\b/i,
-    /@claude-reviewer\b/i,
-    /@ai\b/i,
+    /(?:^|\s)@claude\b/i,
+    /(?:^|\s)@claude-reviewer\b/i,
+    /(?:^|\s)@ai\b/i,
   ];
   return mentionPatterns.some(pattern => pattern.test(text));
 }
