@@ -6,7 +6,6 @@ import { loadConfig } from "./config.js";
 import { logger } from "./utils/logger.js";
 import { extractDocId, buildDocsUrl } from "./utils/url.js";
 import { DocsReader } from "./google/docs-reader.js";
-import { BrowserDocsReader } from "./browser/docs-reader.js";
 import { DocumentAnalyzer } from "./claude/analyzer.js";
 import { BrowserSession } from "./browser/session.js";
 import { DocsWriter } from "./browser/docs-writer.js";
@@ -47,23 +46,28 @@ program
       logger.info("Document ID extracted", { docId });
 
       // 1. Read the document
-      let document: DocumentContent;
-      const session = new BrowserSession();
-
-      const hasServiceAccount = config.googleServiceAccountPath && existsSync(config.googleServiceAccountPath);
-
       console.log("\n🔍 Reading document...");
-      if (hasServiceAccount) {
-        logger.info("Fetching document via API...");
-        const reader = new DocsReader(config);
-        document = await reader.fetchDocument(docId);
-      } else {
-        logger.info("Using browser to read document...");
-        const context = await session.launch(true);
-        const page = await context.newPage();
-        const browserReader = new BrowserDocsReader(page);
-        document = await browserReader.readDocument(url);
+
+      // Require service account for reliable, clean data
+      if (!config.googleServiceAccountPath || !existsSync(config.googleServiceAccountPath)) {
+        console.error("\n❌ Service account required for reliable document reading");
+        console.error("\nSetup instructions:");
+        console.error("1. Create a Google Cloud project");
+        console.error("2. Enable Google Docs API");
+        console.error("3. Create a service account and download credentials.json");
+        console.error("4. Set GOOGLE_SERVICE_ACCOUNT_PATH=./credentials.json in .env");
+        console.error("\nWhy: Browser reading is unreliable and expensive");
+        console.error("  - Extracts duplicate comments (164 instead of 20)");
+        console.error("  - Mixes UI text into document body");
+        console.error("  - Costs 4x more ($0.06 vs $0.015 per run)\n");
+        process.exit(1);
       }
+
+      logger.info("Fetching document via API...");
+      const reader = new DocsReader(config);
+      const document = await reader.fetchDocument(docId);
+
+      const session = new BrowserSession();
 
       console.log(`   📄 "${document.title}"`);
       console.log(`   📊 ${document.body.length} chars, ${document.comments.length} comments`);
@@ -72,6 +76,8 @@ program
       console.log("\n🤖 Analyzing with Claude...");
       const analyzer = new DocumentAnalyzer(config);
       const review = await analyzer.analyze(document);
+
+      console.log(`   💰 Estimated cost: See logs for token usage`);
 
       // Show what Claude found
       const totalActions = review.suggestions.length + review.commentReplies.length + review.newComments.length;

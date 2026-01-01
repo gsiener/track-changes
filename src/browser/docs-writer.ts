@@ -85,6 +85,10 @@ export class DocsWriter {
     logger.info("Navigating to document", { url });
     await this.page.goto(url, { waitUntil: "load", timeout: 60000 });
     await this.page.waitForTimeout(TIMEOUTS.PAGE_LOAD);
+
+    // Dismiss any onboarding dialogs that block interaction
+    await dismissDialogs(this.page);
+    await this.page.waitForTimeout(TIMEOUTS.KEY_PRESS);
   }
 
   async enableSuggestionMode(): Promise<void> {
