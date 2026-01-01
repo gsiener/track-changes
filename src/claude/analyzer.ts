@@ -61,6 +61,19 @@ export class DocumentAnalyzer {
       ],
     });
 
+    // Log API usage and cost
+    const inputTokens = response.usage.input_tokens;
+    const outputTokens = response.usage.output_tokens;
+    const estimatedCost = (inputTokens * 0.003 + outputTokens * 0.015) / 1000;
+
+    logger.info("API usage", {
+      model: "claude-sonnet-4-20250514",
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+      estimatedCost: `$${estimatedCost.toFixed(4)}`,
+    });
+
     const textContent = response.content.find((c) => c.type === "text");
     if (!textContent || textContent.type !== "text") {
       throw new Error("No text response from Claude");
