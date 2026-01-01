@@ -1,6 +1,7 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { existsSync } from "fs";
 import { logger } from "../utils/logger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -14,11 +15,21 @@ export class BrowserSession {
     logger.info("Launching browser", { headless, userDataDir: USER_DATA_DIR });
 
     this.browser = await chromium.launch({ headless });
-    this.context = await this.browser.newContext({
-      storageState: await this.getStorageStatePath(),
-      viewport: { width: 1280, height: 800 },
-    });
 
+    // Only use saved session if it exists
+    const storagePath = this.getStorageStatePath();
+    const contextOptions: { viewport: { width: number; height: number }; storageState?: string } = {
+      viewport: { width: 1280, height: 800 },
+    };
+
+    if (existsSync(storagePath)) {
+      logger.info("Using saved session");
+      contextOptions.storageState = storagePath;
+    } else {
+      logger.warn("No saved session found - you may need to log in");
+    }
+
+    this.context = await this.browser.newContext(contextOptions);
     return this.context;
   }
 
@@ -39,7 +50,7 @@ export class BrowserSession {
       throw new Error("No browser context to save");
     }
 
-    const storagePath = await this.getStorageStatePath();
+    const storagePath = this.getStorageStatePath();
     await this.context.storageState({ path: storagePath });
     logger.info("Session saved", { path: storagePath });
   }
@@ -56,7 +67,11 @@ export class BrowserSession {
     logger.info("Browser closed");
   }
 
-  private async getStorageStatePath(): Promise<string> {
+  getContext(): BrowserContext | null {
+    return this.context;
+  }
+
+  private getStorageStatePath(): string {
     return join(USER_DATA_DIR, "storage-state.json");
   }
 }

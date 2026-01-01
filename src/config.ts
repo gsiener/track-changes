@@ -4,7 +4,7 @@ import { z } from "zod";
 dotenvConfig();
 
 const configSchema = z.object({
-  googleServiceAccountPath: z.string().min(1, "Google service account path required"),
+  googleServiceAccountPath: z.string().optional(),
   claudeGoogleEmail: z.string().email("Valid email required for Claude's Google account"),
   claudeGooglePassword: z.string().min(1, "Google password required"),
   anthropicApiKey: z.string().startsWith("sk-ant-", "Invalid Anthropic API key format"),

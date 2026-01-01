@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
+import { existsSync } from "fs";
 import { loadConfig } from "./config.js";
 import { logger } from "./utils/logger.js";
-import { extractDocId } from "./utils/url.js";
+import { extractDocId, buildDocsUrl } from "./utils/url.js";
+import { DocsReader } from "./google/docs-reader.js";
+import { BrowserDocsReader } from "./browser/docs-reader.js";
+import { DocumentAnalyzer } from "./claude/analyzer.js";
+import { BrowserSession } from "./browser/session.js";
+import { DocsWriter } from "./browser/docs-writer.js";
+import type { DocumentContent } from "./google/types.js";
 
 const program = new Command();
 
@@ -32,12 +39,89 @@ program
 
       logger.info("Document ID extracted", { docId });
 
-      // TODO: Implement full flow
-      // 1. Fetch document content via Google Docs API
-      // 2. Send to Claude for analysis
-      // 3. Apply suggestions via Playwright (unless dry-run)
+      // 1. Fetch document content
+      let document: DocumentContent;
+      const session = new BrowserSession();
 
-      logger.warn("Full implementation not yet complete");
+      const hasServiceAccount = config.googleServiceAccountPath && existsSync(config.googleServiceAccountPath);
+
+      if (hasServiceAccount) {
+        // Use API if service account is configured and file exists
+        logger.info("Fetching document via API...");
+        const reader = new DocsReader(config);
+        document = await reader.fetchDocument(docId);
+      } else {
+        // Fall back to browser-based reading
+        logger.info("No service account configured, using browser to read document...");
+        const context = await session.launch(false);
+        const page = await context.newPage();
+        const browserReader = new BrowserDocsReader(page);
+        document = await browserReader.readDocument(url);
+      }
+
+      logger.info("Document fetched", { title: document.title });
+
+      // 2. Send to Claude for analysis
+      logger.info("Sending to Claude for analysis...");
+      const analyzer = new DocumentAnalyzer(config);
+      const review = await analyzer.analyze(document, options.prompt);
+
+      logger.info("Analysis complete", {
+        suggestions: review.suggestions.length,
+        commentReplies: review.commentReplies.length,
+        newComments: review.newComments.length,
+      });
+
+      // Show what Claude found
+      if (review.suggestions.length > 0) {
+        console.log("\n📝 Suggestions:");
+        for (const s of review.suggestions) {
+          console.log(`  - "${s.findText.slice(0, 40)}..." → "${s.replaceWith.slice(0, 40)}..."`);
+          if (s.rationale) console.log(`    Reason: ${s.rationale}`);
+        }
+      }
+
+      if (review.commentReplies.length > 0) {
+        console.log("\n💬 Comment Replies:");
+        for (const r of review.commentReplies) {
+          console.log(`  - Reply to "${r.commentQuote.slice(0, 30)}...": ${r.reply.slice(0, 50)}...`);
+        }
+      }
+
+      if (review.newComments.length > 0) {
+        console.log("\n📌 New Comments:");
+        for (const c of review.newComments) {
+          console.log(`  - On "${c.anchorText.slice(0, 30)}...": ${c.comment.slice(0, 50)}...`);
+        }
+      }
+
+      // 3. Apply suggestions via Playwright (unless dry-run)
+      if (options.dryRun) {
+        logger.info("Dry run - skipping browser automation");
+        console.log("\n✅ Dry run complete. Use without --dry-run to apply changes.");
+        await session.close();
+      } else {
+        logger.info("Applying changes via browser...");
+
+        try {
+          // Get or create browser context
+          let context = session.getContext();
+          if (!context) {
+            context = await session.launch(false);
+          }
+          const page = await context.newPage();
+          const writer = new DocsWriter(page);
+
+          await writer.navigateToDocument(buildDocsUrl(docId));
+          await writer.enableSuggestionMode();
+          await writer.applyAllChanges(review);
+
+          logger.info("All changes applied successfully");
+          console.log("\n✅ Review complete! Check your document for suggestions.");
+        } finally {
+          await session.close();
+        }
+      }
 
     } catch (error) {
       logger.error("Review failed", { error: String(error) });
@@ -50,13 +134,28 @@ program
   .description("Manually log into Google account for browser automation")
   .action(async () => {
     try {
-      loadConfig();
+      const config = loadConfig();
       logger.info("Opening browser for manual Google login...");
+      console.log("\n🔐 Please log into Google with the Claude account:");
+      console.log(`   Email: ${config.claudeGoogleEmail}`);
+      console.log("\nThe browser will open. Log in, then press Enter here when done.\n");
 
-      // TODO: Open Playwright browser for manual login
-      // This saves session state for future automated runs
+      const session = new BrowserSession();
+      const page = await session.launchForLogin();
 
-      logger.warn("Login command not yet implemented");
+      // Navigate to Google login
+      await page.goto("https://accounts.google.com");
+
+      // Wait for user to press Enter
+      await new Promise<void>((resolve) => {
+        process.stdin.once("data", () => resolve());
+      });
+
+      // Save session
+      await session.saveSession();
+      await session.close();
+
+      console.log("✅ Login session saved! You can now use the review command.");
 
     } catch (error) {
       logger.error("Login failed", { error: String(error) });

@@ -3,6 +3,10 @@ import { readFileSync } from "fs";
 import type { Config } from "../config.js";
 
 export function createGoogleAuth(config: Config) {
+  if (!config.googleServiceAccountPath) {
+    throw new Error("Google service account path not configured");
+  }
+
   const credentials = JSON.parse(
     readFileSync(config.googleServiceAccountPath, "utf-8")
   );
