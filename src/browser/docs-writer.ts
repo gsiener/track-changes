@@ -19,25 +19,71 @@ export class DocsWriter {
 
   async navigateToDocument(url: string): Promise<void> {
     logger.info("Navigating to document", { url });
-    await this.page.goto(url, { waitUntil: "networkidle" });
-    await this.page.waitForTimeout(2000); // Allow document to fully load
+    await this.page.goto(url, { waitUntil: "load", timeout: 60000 });
+    await this.page.waitForTimeout(5000); // Allow document to fully load
   }
 
   async enableSuggestionMode(): Promise<void> {
     logger.info("Enabling suggestion mode");
 
     await withRetry(async () => {
-      // Click the editing mode dropdown
-      const modeButton = await this.page.$(selectors.editingModeButton);
+      // Take screenshot for debugging
+      await this.takeScreenshot("before-suggestion-mode");
+
+      // Try multiple selectors for the editing mode button
+      const modeSelectors = [
+        selectors.editingModeButton,
+        '#docs-toolbar-mode-switcher',
+        '[aria-label*="mode"]',
+        '[data-tooltip*="Editing"]',
+        '.docs-menubutton-caption',
+      ];
+
+      let modeButton = null;
+      for (const selector of modeSelectors) {
+        modeButton = await this.page.$(selector);
+        if (modeButton) {
+          logger.info("Found mode button", { selector });
+          break;
+        }
+      }
+
       if (!modeButton) {
+        // Log available elements for debugging
+        const buttons = await this.page.$$eval('button, [role="button"]', els =>
+          els.slice(0, 10).map(e => ({ tag: e.tagName, aria: e.getAttribute('aria-label'), text: e.textContent?.slice(0, 30) }))
+        );
+        logger.warn("Available buttons", { buttons });
         throw new Error("Could not find editing mode button");
       }
 
       await modeButton.click();
-      await this.page.waitForTimeout(500);
+      await this.page.waitForTimeout(1000);
 
-      // Click "Suggesting" option
-      const suggestingOption = await this.page.$(selectors.suggestingModeOption);
+      // Take screenshot after clicking
+      await this.takeScreenshot("after-mode-click");
+
+      // Try multiple selectors for suggesting option
+      const suggestSelectors = [
+        selectors.suggestingModeOption,
+        '[aria-label*="Suggesting"]',
+        '[data-value="suggesting"]',
+        'div:has-text("Suggesting")',
+      ];
+
+      let suggestingOption = null;
+      for (const selector of suggestSelectors) {
+        try {
+          suggestingOption = await this.page.$(selector);
+          if (suggestingOption) {
+            logger.info("Found suggesting option", { selector });
+            break;
+          }
+        } catch {
+          // Continue to next selector
+        }
+      }
+
       if (!suggestingOption) {
         throw new Error("Could not find suggesting mode option");
       }
@@ -101,9 +147,9 @@ export class DocsWriter {
 
   private async applySuggestion(suggestion: TextSuggestion): Promise<void> {
     await withRetry(async () => {
-      // Open find and replace with Ctrl+H
-      await this.page.keyboard.press("Control+h");
-      await this.page.waitForTimeout(500);
+      // Open find and replace with Cmd+Shift+H (macOS)
+      await this.page.keyboard.press("Meta+Shift+h");
+      await this.page.waitForTimeout(1000);
 
       // Wait for dialog
       await this.page.waitForSelector(selectors.findReplaceDialog, { timeout: 5000 });
@@ -182,9 +228,9 @@ export class DocsWriter {
   private async addNewComment(comment: NewComment): Promise<void> {
     await withRetry(async () => {
       // First, find and select the anchor text
-      // Open find dialog
-      await this.page.keyboard.press("Control+f");
-      await this.page.waitForTimeout(500);
+      // Open find dialog with Cmd+F (macOS)
+      await this.page.keyboard.press("Meta+f");
+      await this.page.waitForTimeout(1000);
 
       const findInput = await this.page.$('input[aria-label="Find in document"]');
       if (!findInput) throw new Error("Find input not found");
@@ -198,8 +244,8 @@ export class DocsWriter {
       await this.page.keyboard.press("Escape");
       await this.page.waitForTimeout(300);
 
-      // Now add comment with Ctrl+Alt+M
-      await this.page.keyboard.press("Control+Alt+m");
+      // Now add comment with Cmd+Option+M (macOS)
+      await this.page.keyboard.press("Meta+Alt+m");
       await this.page.waitForTimeout(500);
 
       // Type the comment
