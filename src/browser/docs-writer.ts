@@ -147,32 +147,144 @@ export class DocsWriter {
 
   private async applySuggestion(suggestion: TextSuggestion): Promise<void> {
     await withRetry(async () => {
-      // Open find and replace with Cmd+Shift+H (macOS)
-      await this.page.keyboard.press("Meta+Shift+h");
+      // Open find and replace via Edit menu (more reliable than keyboard shortcuts)
+      await this.page.click('div[id="docs-edit-menu"]');
+      await this.page.waitForTimeout(500);
+      await this.page.click('span:has-text("Find and replace")');
       await this.page.waitForTimeout(1000);
 
-      // Wait for dialog
-      await this.page.waitForSelector(selectors.findReplaceDialog, { timeout: 5000 });
+      // Try multiple selectors to find the input
+      const findSelectors = [
+        '.docs-findinput-input',
+        'input[aria-label="Find"]',
+        'input[placeholder*="Find"]',
+        'textarea[aria-label="Find"]',
+      ];
 
-      // Type the text to find
-      const findInput = await this.page.$(selectors.findInput);
-      if (!findInput) throw new Error("Find input not found");
+      let findInput = null;
+      for (const selector of findSelectors) {
+        findInput = await this.page.$(selector);
+        if (findInput) {
+          logger.info("Found find input", { selector });
+          break;
+        }
+      }
+      if (!findInput) {
+        await this.takeScreenshot("find-input-not-found");
+        throw new Error("Find input not found");
+      }
 
       await findInput.fill(suggestion.findText);
-      await this.page.waitForTimeout(300);
+      await this.page.waitForTimeout(500);
 
-      // Type the replacement text
-      const replaceInput = await this.page.$(selectors.replaceInput);
-      if (!replaceInput) throw new Error("Replace input not found");
+      // Press Enter to trigger the search
+      await this.page.keyboard.press("Enter");
+      await this.page.waitForTimeout(1000);
+
+      // Find the replace input - try multiple strategies
+      const replaceSelectors = [
+        '.docs-replaceinput-input',
+        'input[aria-label="Replace with"]',
+        'input[aria-label*="Replace"]',
+        'textarea[aria-label="Replace with"]',
+        'textarea[aria-label*="Replace"]',
+        // Try finding by position - replace input is second in the dialog
+        '.docs-findinput-container input:nth-of-type(2)',
+        '.docs-findbar input:nth-of-type(2)',
+      ];
+
+      let replaceInput = null;
+      for (const selector of replaceSelectors) {
+        try {
+          replaceInput = await this.page.$(selector);
+          if (replaceInput) {
+            logger.info("Found replace input", { selector });
+            break;
+          }
+        } catch {
+          // Continue to next selector
+        }
+      }
+
+      // If still not found, try finding all inputs in the dialog and pick the second one
+      if (!replaceInput) {
+        const dialogInputs = await this.page.$$('.docs-findinput-container input, .docs-findinput-container textarea, [role="dialog"] input, [role="dialog"] textarea');
+        if (dialogInputs.length >= 2) {
+          replaceInput = dialogInputs[1];
+          logger.info("Found replace input by position", { index: 1, total: dialogInputs.length });
+        }
+      }
+
+      if (!replaceInput) {
+        await this.takeScreenshot("replace-input-not-found");
+        throw new Error("Replace input not found");
+      }
 
       await replaceInput.fill(suggestion.replaceWith);
       await this.page.waitForTimeout(300);
 
-      // Click replace button (this creates a suggestion in suggestion mode)
-      const replaceButton = await this.page.$(selectors.replaceButton);
-      if (!replaceButton) throw new Error("Replace button not found");
+      // Click replace button - try multiple selectors
+      const replaceButtonSelectors = [
+        // Exact text match buttons
+        'button:has-text("Replace"):not(:has-text("all"))',
+        '[role="button"]:has-text("Replace"):not(:has-text("all"))',
+        // Google Docs specific selectors
+        '.docs-findinput-button:has-text("Replace")',
+        '[data-tooltip="Replace"]',
+        '[aria-label="Replace"]',
+        // Broader selectors
+        'div:has-text("Replace"):not(:has-text("all"))[role="button"]',
+      ];
 
-      await replaceButton.click();
+      let replaceButton = null;
+      for (const selector of replaceButtonSelectors) {
+        try {
+          // Use locator for better text matching
+          const matches = await this.page.$$(selector);
+          for (const match of matches) {
+            const text = await match.textContent();
+            // Make sure it says "Replace" but not "Replace all"
+            if (text && text.trim() === 'Replace') {
+              replaceButton = match;
+              logger.info("Found replace button", { selector, text: text.trim() });
+              break;
+            }
+          }
+          if (replaceButton) break;
+        } catch {
+          // Continue to next selector
+        }
+      }
+
+      // Fallback: find any clickable element that says exactly "Replace"
+      if (!replaceButton) {
+        const allElements = await this.page.$$('button, [role="button"], .docs-findinput-button');
+        for (const el of allElements) {
+          const text = await el.textContent();
+          if (text && text.trim() === 'Replace') {
+            replaceButton = el;
+            logger.info("Found replace button by text scan", { text: text.trim() });
+            break;
+          }
+        }
+      }
+
+      if (!replaceButton) {
+        await this.takeScreenshot("replace-button-not-found");
+        throw new Error("Replace button not found");
+      }
+
+      // Wait a moment for the button to become enabled after search completes
+      await this.page.waitForTimeout(500);
+
+      // Click with timeout and retry logic
+      try {
+        await replaceButton.click({ timeout: 5000 });
+      } catch (clickError) {
+        logger.warn("Replace button click failed, trying force click", { error: String(clickError) });
+        // Try force click if normal click fails
+        await replaceButton.click({ force: true });
+      }
       await this.page.waitForTimeout(500);
 
       // Close the dialog
@@ -227,39 +339,102 @@ export class DocsWriter {
 
   private async addNewComment(comment: NewComment): Promise<void> {
     await withRetry(async () => {
-      // First, find and select the anchor text
-      // Open find dialog with Cmd+F (macOS)
-      await this.page.keyboard.press("Meta+f");
+      // Use Edit menu to open Find and Replace (consistent with applySuggestion)
+      await this.page.click('div[id="docs-edit-menu"]');
+      await this.page.waitForTimeout(500);
+      await this.page.click('span:has-text("Find and replace")');
       await this.page.waitForTimeout(1000);
 
-      const findInput = await this.page.$('input[aria-label="Find in document"]');
+      // Find the search input
+      const findSelectors = [
+        '.docs-findinput-input',
+        'input[aria-label="Find"]',
+        'input[aria-label="Find in document"]',
+        'input[placeholder*="Find"]',
+      ];
+
+      let findInput = null;
+      for (const selector of findSelectors) {
+        findInput = await this.page.$(selector);
+        if (findInput) {
+          logger.info("Found find input for comment", { selector });
+          break;
+        }
+      }
       if (!findInput) throw new Error("Find input not found");
 
       await findInput.fill(comment.anchorText);
       await this.page.waitForTimeout(500);
 
-      // Press Enter to find, then Escape to close find
+      // Press Enter to find the text
       await this.page.keyboard.press("Enter");
-      await this.page.waitForTimeout(300);
-      await this.page.keyboard.press("Escape");
-      await this.page.waitForTimeout(300);
-
-      // Now add comment with Cmd+Option+M (macOS)
-      await this.page.keyboard.press("Meta+Alt+m");
       await this.page.waitForTimeout(500);
 
-      // Type the comment
-      const commentTextarea = await this.page.$(selectors.commentTextarea);
+      // Close find dialog
+      await this.page.keyboard.press("Escape");
+      await this.page.waitForTimeout(500);
+
+      // The found text should now be selected, add comment with keyboard shortcut
+      await this.page.keyboard.press("Meta+Alt+m");
+      await this.page.waitForTimeout(1000);
+
+      // Try multiple selectors for comment textarea
+      const commentSelectors = [
+        selectors.commentTextarea,
+        'textarea[aria-label*="comment"]',
+        'textarea[aria-label*="Comment"]',
+        '[contenteditable="true"][aria-label*="comment"]',
+        '.docos-input-textarea',
+      ];
+
+      let commentTextarea = null;
+      for (const selector of commentSelectors) {
+        try {
+          commentTextarea = await this.page.$(selector);
+          if (commentTextarea) {
+            logger.info("Found comment textarea", { selector });
+            break;
+          }
+        } catch {
+          // Continue
+        }
+      }
+
       if (commentTextarea) {
         await commentTextarea.fill(comment.comment);
         await this.page.waitForTimeout(300);
 
-        // Submit
-        const submitButton = await this.page.$(selectors.submitCommentButton);
+        // Try multiple selectors for submit button
+        const submitSelectors = [
+          selectors.submitCommentButton,
+          'button[aria-label*="Comment"]',
+          'button:has-text("Comment")',
+          '[role="button"]:has-text("Comment")',
+        ];
+
+        let submitButton = null;
+        for (const selector of submitSelectors) {
+          try {
+            submitButton = await this.page.$(selector);
+            if (submitButton) {
+              logger.info("Found submit button", { selector });
+              break;
+            }
+          } catch {
+            // Continue
+          }
+        }
+
         if (submitButton) {
           await submitButton.click();
           await this.page.waitForTimeout(500);
+        } else {
+          // Try pressing Enter to submit
+          await this.page.keyboard.press("Meta+Enter");
+          await this.page.waitForTimeout(500);
         }
+      } else {
+        logger.warn("Comment textarea not found, comment may not have been added");
       }
     }, `Add comment on: "${comment.anchorText.slice(0, 30)}..."`);
   }

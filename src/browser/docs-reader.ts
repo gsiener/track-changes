@@ -44,42 +44,60 @@ export class BrowserDocsReader {
   }
 
   private async extractBodyText(): Promise<string> {
-    // Google Docs renders content in a specific structure
-    // Try multiple selectors for robustness
-    const selectors = [
-      ".kix-page-content-wrapper",
-      ".docs-texteventtarget-iframe",
-      '[role="textbox"]',
-    ];
-
-    for (const selector of selectors) {
-      try {
-        const element = await this.page.$(selector);
-        if (element) {
-          const text = await element.textContent();
-          if (text && text.trim().length > 0) {
-            return text.trim();
+    // Google Docs renders document content in paragraph elements
+    // We need to specifically target the document canvas and avoid UI elements
+    const text = await this.page.evaluate(() => {
+      // Target the actual document paragraphs, not UI elements
+      // Google Docs uses .kix-paragraphrenderer for document text
+      const paragraphs = document.querySelectorAll('.kix-paragraphrenderer');
+      if (paragraphs.length > 0) {
+        const texts: string[] = [];
+        paragraphs.forEach(p => {
+          const content = p.textContent?.trim();
+          if (content) {
+            texts.push(content);
           }
-        }
-      } catch {
-        // Try next selector
-      }
-    }
-
-    // Fallback: try to get all visible text
-    const allText = await this.page.evaluate(() => {
-      // Get text from the main document area
-      const mainContent = document.querySelector(".kix-appview-editor");
-      if (mainContent) {
-        return mainContent.textContent || "";
+        });
+        return texts.join('\n\n');
       }
 
-      // Broader fallback
-      const body = document.body;
-      return body?.innerText || "";
+      // Fallback: Try to get text from the page content wrapper
+      // but exclude common UI elements
+      const pageContent = document.querySelector('.kix-page-content-wrapper');
+      if (pageContent) {
+        // Clone and remove UI elements
+        const clone = pageContent.cloneNode(true) as Element;
+        // Remove comment elements, suggestions UI, etc.
+        clone.querySelectorAll('[data-thread-id], .docos-anchoredreplyview, .docs-butterbar-container').forEach(el => el.remove());
+        return clone.textContent?.trim() || '';
+      }
+
+      // Last resort: get innerText but filter out obvious UI patterns
+      const editor = document.querySelector('.kix-appview-editor');
+      if (editor) {
+        const text = editor.innerText || '';
+        // Filter out lines that look like UI elements
+        return text
+          .split('\n')
+          .filter(line => {
+            const lower = line.toLowerCase();
+            // Skip lines that are clearly UI elements
+            if (lower.includes('assigned to') && lower.includes('pm') && lower.includes('today')) return false;
+            if (lower.includes('suggestion was deleted')) return false;
+            if (lower.includes('show more') && lower.includes('show less')) return false;
+            if (lower.includes('comment details cannot be verified')) return false;
+            if (lower.includes('gemini created these notes')) return false;
+            if (lower.includes('drag image to reposition')) return false;
+            return true;
+          })
+          .join('\n')
+          .trim();
+      }
+
+      return '';
     });
 
-    return allText.trim();
+    return text;
   }
 
   private async extractComments(): Promise<CommentThread[]> {

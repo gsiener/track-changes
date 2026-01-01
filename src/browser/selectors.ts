@@ -6,12 +6,12 @@ export const selectors = {
   editingModeButton: '[aria-label="Editing mode"]',
   suggestingModeOption: '[aria-label="Suggesting"]',
 
-  // Find and replace dialog
-  findReplaceDialog: '[aria-label="Find and replace"]',
-  findInput: 'input[aria-label="Find in document"]',
-  replaceInput: 'input[aria-label="Replace with"]',
-  replaceButton: 'button[aria-label="Replace"]',
-  closeDialogButton: 'button[aria-label="Close"]',
+  // Find and replace dialog - multiple selectors for robustness
+  findReplaceDialog: '.docs-findinput-container, [role="dialog"]:has-text("Find"), .docs-findbar',
+  findInput: '.docs-findinput-input, input[aria-label="Find"], input[name="find"]',
+  replaceInput: '.docs-replaceinput-input, input[aria-label="Replace with"], input[name="replace"]',
+  replaceButton: 'button:has-text("Replace"), [aria-label="Replace"]',
+  closeDialogButton: '[aria-label="Close"], button:has-text("Close")',
 
   // Comments panel
   commentsPanel: '[aria-label="Comments"]',
