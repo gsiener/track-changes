@@ -3,6 +3,7 @@
 import { Command } from "commander";
 import { loadConfig } from "./config.js";
 import { logger } from "./utils/logger.js";
+import { extractDocId } from "./utils/url.js";
 
 const program = new Command();
 
@@ -62,13 +63,5 @@ program
       process.exit(1);
     }
   });
-
-function extractDocId(url: string): string | null {
-  // Match patterns like:
-  // https://docs.google.com/document/d/DOCUMENT_ID/edit
-  // https://docs.google.com/document/d/DOCUMENT_ID
-  const match = url.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
-  return match ? match[1] : null;
-}
 
 program.parse();
