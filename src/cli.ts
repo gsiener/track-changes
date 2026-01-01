@@ -25,7 +25,15 @@ program
   .argument("<url>", "Google Docs URL to review")
   .option("-p, --prompt <text>", "Optional focus instructions for Claude")
   .option("--dry-run", "Analyze document but don't apply changes")
-  .action(async (url: string, options: { prompt?: string; dryRun?: boolean }) => {
+  .option("-v, --verbose", "Enable verbose/debug logging")
+  .option("-q, --quiet", "Only show errors and final results")
+  .action(async (url: string, options: { prompt?: string; dryRun?: boolean; verbose?: boolean; quiet?: boolean }) => {
+    // Set log level based on flags
+    if (options.verbose) {
+      logger.setLevel("debug");
+    } else if (options.quiet) {
+      logger.setLevel("error");
+    }
     try {
       const config = loadConfig();
       logger.info("Starting document review", { url, dryRun: options.dryRun ?? false });
@@ -33,7 +41,8 @@ program
       // Extract document ID from URL
       const docId = extractDocId(url);
       if (!docId) {
-        logger.error("Invalid Google Docs URL");
+        console.error("\n❌ Invalid Google Docs URL. Please provide a URL like:");
+        console.error("   https://docs.google.com/document/d/YOUR_DOC_ID/edit\n");
         process.exit(1);
       }
 
@@ -45,6 +54,7 @@ program
 
       const hasServiceAccount = config.googleServiceAccountPath && existsSync(config.googleServiceAccountPath);
 
+      console.log("\n🔍 Reading document...");
       if (hasServiceAccount) {
         // Use API if service account is configured and file exists
         logger.info("Fetching document via API...");
@@ -59,9 +69,12 @@ program
         document = await browserReader.readDocument(url);
       }
 
+      console.log(`   📄 "${document.title}"`);
+      console.log(`   📊 ${document.body.length} characters, ${document.comments.length} comments`);
       logger.info("Document fetched", { title: document.title });
 
       // 2. Send to Claude for analysis
+      console.log("\n🤖 Analyzing with Claude...");
       logger.info("Sending to Claude for analysis...");
       const analyzer = new DocumentAnalyzer(config);
       const review = await analyzer.analyze(document, options.prompt);
@@ -101,6 +114,7 @@ program
         console.log("\n✅ Dry run complete. Use without --dry-run to apply changes.");
         await session.close();
       } else {
+        console.log("\n⏳ Applying changes to document...");
         logger.info("Applying changes via browser...");
 
         try {
@@ -118,13 +132,27 @@ program
 
           logger.info("All changes applied successfully");
           console.log("\n✅ Review complete! Check your document for suggestions.");
+          console.log(`   🔗 ${buildDocsUrl(docId)}`);
         } finally {
           await session.close();
         }
       }
 
     } catch (error) {
-      logger.error("Review failed", { error: String(error) });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error("Review failed", { error: errorMessage });
+
+      // Provide helpful error messages
+      if (errorMessage.includes("ANTHROPIC_API_KEY")) {
+        console.error("\n❌ Missing Anthropic API key. Set ANTHROPIC_API_KEY in your .env file.\n");
+      } else if (errorMessage.includes("session") || errorMessage.includes("storage")) {
+        console.error("\n❌ Browser session issue. Try running 'track-changes login' first.\n");
+      } else if (errorMessage.includes("timeout")) {
+        console.error("\n❌ Operation timed out. The document may be loading slowly. Try again.\n");
+      } else {
+        console.error(`\n❌ Review failed: ${errorMessage}\n`);
+        console.error("   Use --verbose for detailed debugging output.\n");
+      }
       process.exit(1);
     }
   });

@@ -73,13 +73,13 @@ export class BrowserDocsReader {
       }
 
       // Last resort: get innerText but filter out obvious UI patterns
-      const editor = document.querySelector('.kix-appview-editor');
+      const editor = document.querySelector('.kix-appview-editor') as HTMLElement | null;
       if (editor) {
         const text = editor.innerText || '';
         // Filter out lines that look like UI elements
         return text
           .split('\n')
-          .filter(line => {
+          .filter((line: string) => {
             const lower = line.toLowerCase();
             // Skip lines that are clearly UI elements
             if (lower.includes('assigned to') && lower.includes('pm') && lower.includes('today')) return false;
@@ -101,36 +101,90 @@ export class BrowserDocsReader {
   }
 
   private async extractComments(): Promise<CommentThread[]> {
-    // Try to find comment threads in the sidebar
     const comments: CommentThread[] = [];
 
     try {
-      // Look for comment elements
-      const commentElements = await this.page.$$('[data-thread-id]');
+      // Try multiple selectors to find comment elements
+      const commentSelectors = [
+        '[data-thread-id]',
+        '.docos-anchoredreplyview',
+        '.docos-docoview-tesla-conflict',
+        '.docos-replyview',
+        // Comments panel elements
+        '.docos-streamdocoview',
+      ];
 
-      for (const el of commentElements) {
+      const seenThreadIds = new Set<string>();
+
+      for (const selector of commentSelectors) {
         try {
-          const threadId = await el.getAttribute("data-thread-id");
-          const content = await el.textContent();
+          const commentElements = await this.page.$$(selector);
 
-          if (threadId && content) {
-            comments.push({
-              id: threadId,
-              anchorText: "",
-              content: content.trim(),
-              author: "Unknown",
-              resolved: false,
-              replies: [],
-            });
+          for (const el of commentElements) {
+            try {
+              // Try to get thread ID from various attributes
+              let threadId = await el.getAttribute("data-thread-id");
+              if (!threadId) {
+                threadId = await el.getAttribute("data-id");
+              }
+              if (!threadId) {
+                threadId = `comment-${seenThreadIds.size}`;
+              }
+
+              // Skip if we've already seen this thread
+              if (seenThreadIds.has(threadId)) continue;
+              seenThreadIds.add(threadId);
+
+              // Get the full text content
+              const fullText = await el.textContent();
+              if (!fullText || fullText.trim().length === 0) continue;
+
+              // Try to parse out author and content
+              // Google Docs comments often have format: "Author Name\nComment text"
+              const lines = fullText.trim().split('\n').filter(l => l.trim());
+              let author = "Unknown";
+              let content = fullText.trim();
+
+              // Look for author name - typically the first line before timestamp
+              // Pattern: "Name\nTimestamp\nComment"
+              if (lines.length >= 2) {
+                // Check if first line looks like an author (no timestamp patterns)
+                const firstLine = lines[0].trim();
+                if (!firstLine.match(/\d{1,2}:\d{2}/) && !firstLine.match(/today|yesterday/i)) {
+                  author = firstLine;
+                  // Content is everything after the first line, excluding timestamps
+                  content = lines.slice(1)
+                    .filter(l => !l.match(/^\d{1,2}:\d{2}/) && !l.match(/^(today|yesterday)/i))
+                    .join(' ')
+                    .trim();
+                }
+              }
+
+              if (content) {
+                comments.push({
+                  id: threadId,
+                  anchorText: "", // Would need to find the highlighted text in doc
+                  content: content,
+                  author: author,
+                  resolved: false,
+                  replies: [],
+                });
+
+                logger.debug("Extracted comment", { threadId, author, contentPreview: content.slice(0, 50) });
+              }
+            } catch {
+              // Skip this comment element
+            }
           }
         } catch {
-          // Skip this comment
+          // Continue to next selector
         }
       }
-    } catch {
-      logger.warn("Could not extract comments from sidebar");
+    } catch (error) {
+      logger.warn("Could not extract comments from sidebar", { error: String(error) });
     }
 
+    logger.info("Comments extracted", { count: comments.length });
     return comments;
   }
 
