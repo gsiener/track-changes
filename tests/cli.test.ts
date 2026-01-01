@@ -43,6 +43,11 @@ describe("@mention detection", () => {
     expect(isClaudeMention("hey @claude can you help")).toBe(true);
   });
 
+  it("detects email-style @claude@domain mentions", () => {
+    expect(isClaudeMention("@claude@kcuda.org make this better")).toBe(true);
+    expect(isClaudeMention("@claude@example.com please fix")).toBe(true);
+  });
+
   it("detects @claude-reviewer mentions", () => {
     expect(isClaudeMention("@claude-reviewer review this")).toBe(true);
   });

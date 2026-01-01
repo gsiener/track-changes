@@ -18,8 +18,13 @@ export class BrowserSession {
 
     // Only use saved session if it exists
     const storagePath = this.getStorageStatePath();
-    const contextOptions: { viewport: { width: number; height: number }; storageState?: string } = {
+    const contextOptions: {
+      viewport: { width: number; height: number };
+      storageState?: string;
+      permissions?: string[];
+    } = {
       viewport: { width: 1280, height: 800 },
+      permissions: ['clipboard-read', 'clipboard-write'],
     };
 
     if (existsSync(storagePath)) {

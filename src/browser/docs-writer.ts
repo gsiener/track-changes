@@ -295,29 +295,197 @@ export class DocsWriter {
 
   private async replyToComment(reply: CommentReplyAction): Promise<void> {
     await withRetry(async () => {
-      // Find the comment thread by searching for the quoted text
-      // This is complex because we need to find comments in the sidebar
-      const commentThreads = await this.page.$$(selectors.commentThread);
+      // Close any open dialogs first
+      await this.page.keyboard.press("Escape");
+      await this.page.waitForTimeout(300);
+      await this.page.keyboard.press("Escape");
+      await this.page.waitForTimeout(300);
 
-      for (const thread of commentThreads) {
+      // Find the comment thread by searching for the quoted text
+      // Try multiple selectors for comment threads
+      const threadSelectors = [
+        selectors.commentThread,
+        '.docos-anchoredreplyview',
+        '.docos-docoview-tesla-conflict',
+        '.docos-streamdocoview',
+      ];
+
+      let allThreads: any[] = [];
+      for (const selector of threadSelectors) {
+        const threads = await this.page.$$(selector);
+        if (threads.length > 0) {
+          allThreads = threads;
+          logger.info("Found comment threads", { selector, count: threads.length });
+          break;
+        }
+      }
+
+      // Extract searchable keywords from the comment quote
+      // Use multiple short substrings to increase match chance
+      const searchTerms = [
+        reply.commentQuote.slice(0, 30),
+        // Extract words that are likely unique
+        ...reply.commentQuote.split(/\s+/).filter(w => w.length > 5),
+      ];
+
+      logger.info("Searching for comment", { searchTerms, threadCount: allThreads.length });
+
+      for (const thread of allThreads) {
         const threadText = await thread.textContent();
-        if (threadText && threadText.includes(reply.commentQuote.slice(0, 50))) {
-          // Found the comment, click to focus it
-          await thread.click();
+        if (!threadText) continue;
+
+        // Check if any search term matches
+        const found = searchTerms.some(term =>
+          threadText.toLowerCase().includes(term.toLowerCase())
+        );
+
+        if (found) {
+          logger.info("Found matching comment thread", {
+            preview: threadText.slice(0, 60)
+          });
+
+          // Found the comment, scroll into view
+          await thread.scrollIntoViewIfNeeded();
           await this.page.waitForTimeout(300);
 
-          // Find and click reply input
-          const replyInput = await this.page.$(selectors.replyInput);
+          // Try to find and click on the comment content area specifically
+          // Avoid clicking on buttons or links that might trigger other actions
+          const contentSelectors = [
+            '.docos-replyview-body',
+            '.docos-anchoredreplyview-body',
+            '.docos-text',
+            'span',
+          ];
+
+          let clicked = false;
+          for (const selector of contentSelectors) {
+            try {
+              const contentEl = await thread.$(selector);
+              if (contentEl) {
+                await contentEl.click();
+                clicked = true;
+                logger.info("Clicked comment content", { selector });
+                break;
+              }
+            } catch {
+              // Continue
+            }
+          }
+
+          // If couldn't find specific content element, click the thread directly
+          // Playwright's click() handles scrolling automatically
+          if (!clicked) {
+            try {
+              // Use Playwright's locator-based approach for better reliability
+              await thread.click({ timeout: 5000 });
+              logger.info("Clicked thread element with Playwright click");
+            } catch (clickErr) {
+              logger.warn("Thread click failed, trying JavaScript click", { error: String(clickErr) });
+              // Try JavaScript click as fallback
+              await thread.evaluate((el: HTMLElement) => el.click());
+              logger.info("Executed JavaScript click on thread");
+            }
+          }
+
+          await this.page.waitForTimeout(1500);
+
+          // Take screenshot to see state
+          await this.takeScreenshot("after-comment-click");
+
+          // First, look for a "Reply" button/link to reveal the reply input
+          const replyButtonSelectors = [
+            '.docos-replyview-button',
+            'span:has-text("Reply")',
+            '[aria-label="Reply"]',
+          ];
+
+          for (const selector of replyButtonSelectors) {
+            try {
+              const replyBtn = await thread.$(selector);
+              if (replyBtn) {
+                logger.info("Found reply button, clicking", { selector });
+                await replyBtn.scrollIntoViewIfNeeded();
+                await replyBtn.click({ force: true });
+                await this.page.waitForTimeout(500);
+                break;
+              }
+            } catch {
+              // Continue
+            }
+          }
+
+          // Try multiple selectors for reply input
+          const replySelectors = [
+            '.docos-input-textarea',
+            'textarea[aria-label*="reply"]',
+            'textarea[aria-label*="Reply"]',
+            '[contenteditable="true"]',
+            selectors.replyInput,
+          ];
+
+          let replyInput = null;
+          // First look within the focused area/active comment
+          for (const selector of replySelectors) {
+            try {
+              replyInput = await this.page.$(selector);
+              if (replyInput) {
+                const isVisible = await replyInput.isVisible();
+                if (isVisible) {
+                  logger.info("Found visible reply input", { selector });
+                  break;
+                }
+              }
+            } catch {
+              // Continue
+            }
+            replyInput = null;
+          }
+
           if (replyInput) {
-            await replyInput.fill(reply.reply);
+            await replyInput.scrollIntoViewIfNeeded();
+            await replyInput.click({ force: true });
+            await this.page.waitForTimeout(200);
+            await this.page.keyboard.type(reply.reply, { delay: 20 });
             await this.page.waitForTimeout(300);
 
-            // Click reply button
-            const postButton = await this.page.$(selectors.postReplyButton);
+            // Try multiple selectors for post button
+            const buttonSelectors = [
+              '.docos-input-buttons button:first-child',
+              'button[aria-label*="Reply"]',
+              'button:has-text("Reply")',
+              '[role="button"]:has-text("Reply")',
+              selectors.postReplyButton,
+            ];
+
+            let postButton = null;
+            for (const selector of buttonSelectors) {
+              try {
+                const btn = await this.page.$(selector);
+                if (btn) {
+                  const isVisible = await btn.isVisible();
+                  if (isVisible) {
+                    postButton = btn;
+                    logger.info("Found visible post button", { selector });
+                    break;
+                  }
+                }
+              } catch {
+                // Continue
+              }
+            }
+
             if (postButton) {
-              await postButton.click();
+              await postButton.click({ force: true });
+              await this.page.waitForTimeout(500);
+              logger.info("Reply posted successfully");
+            } else {
+              // Try pressing Ctrl/Cmd+Enter to submit
+              logger.info("No post button found, trying keyboard submit");
+              await this.page.keyboard.press("Meta+Enter");
               await this.page.waitForTimeout(500);
             }
+          } else {
+            logger.warn("Could not find visible reply input in comment thread");
           }
 
           // Resolve if needed

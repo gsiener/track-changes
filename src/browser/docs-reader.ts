@@ -17,7 +17,19 @@ export class BrowserDocsReader {
     logger.info("Reading document via browser", { url });
 
     await this.page.goto(url, { waitUntil: "load", timeout: 60000 });
-    await this.page.waitForTimeout(5000); // Let doc fully render
+
+    // Wait for the document editor to be ready
+    try {
+      await this.page.waitForSelector('.kix-appview-editor', { timeout: 10000 });
+    } catch {
+      logger.warn("Editor element not found, continuing anyway");
+    }
+
+    // Wait longer for content to render - Google Docs is slow
+    await this.page.waitForTimeout(8000);
+
+    // Debug: save screenshot to see what we're working with
+    await this.page.screenshot({ path: 'screenshots/debug-document.png', fullPage: true });
 
     // Extract document title
     const title = await this.page.title();
@@ -44,59 +56,105 @@ export class BrowserDocsReader {
   }
 
   private async extractBodyText(): Promise<string> {
-    // Google Docs renders document content in paragraph elements
-    // We need to specifically target the document canvas and avoid UI elements
-    const text = await this.page.evaluate(() => {
-      // Target the actual document paragraphs, not UI elements
-      // Google Docs uses .kix-paragraphrenderer for document text
-      const paragraphs = document.querySelectorAll('.kix-paragraphrenderer');
-      if (paragraphs.length > 0) {
-        const texts: string[] = [];
-        paragraphs.forEach(p => {
-          const content = p.textContent?.trim();
-          if (content) {
-            texts.push(content);
-          }
+    // Google Docs renders content on Canvas, making direct DOM extraction impossible.
+    // We use the clipboard approach: Click, Select All, Copy, read clipboard
+
+    try {
+      // Click on the document canvas to focus it
+      // The canvas area is within kix-appview-editor but we need to avoid the sidebar
+      await this.page.click('.kix-appview-editor', { position: { x: 400, y: 300 } });
+      await this.page.waitForTimeout(500);
+
+      // Select All
+      await this.page.keyboard.press('Meta+a');
+      await this.page.waitForTimeout(500);
+
+      // Copy to clipboard
+      await this.page.keyboard.press('Meta+c');
+      await this.page.waitForTimeout(500);
+
+      // Read clipboard content using the Clipboard API
+      // First try modern Clipboard API
+      let clipboardText = await this.page.evaluate(async () => {
+        try {
+          const text = await navigator.clipboard.readText();
+          return text;
+        } catch {
+          return '';
+        }
+      });
+
+      // If that failed, try using a textarea to paste into
+      if (!clipboardText || clipboardText.length < 50) {
+        clipboardText = await this.page.evaluate(() => {
+          const textarea = document.createElement('textarea');
+          textarea.style.position = 'fixed';
+          textarea.style.left = '-9999px';
+          document.body.appendChild(textarea);
+          textarea.focus();
+          document.execCommand('paste');
+          const text = textarea.value;
+          document.body.removeChild(textarea);
+          return text;
         });
-        return texts.join('\n\n');
       }
 
-      // Fallback: Try to get text from the page content wrapper
-      // but exclude common UI elements
-      const pageContent = document.querySelector('.kix-page-content-wrapper');
-      if (pageContent) {
-        // Clone and remove UI elements
-        const clone = pageContent.cloneNode(true) as Element;
-        // Remove comment elements, suggestions UI, etc.
-        clone.querySelectorAll('[data-thread-id], .docos-anchoredreplyview, .docs-butterbar-container').forEach(el => el.remove());
-        return clone.textContent?.trim() || '';
+      if (clipboardText && clipboardText.length > 50) {
+        logger.debug("Got text from clipboard", { length: clipboardText.length, preview: clipboardText.slice(0, 100) });
+        // Deselect
+        await this.page.keyboard.press('Escape');
+        return clipboardText;
+      }
+    } catch (error) {
+      logger.debug("Clipboard method failed", { error: String(error) });
+    }
+
+    // Alternative: Try to access Google's internal document model
+    // Google Docs stores document data in JS variables
+    const text = await this.page.evaluate(() => {
+      // Look for the document model in Google's namespace
+      // @ts-ignore - accessing internal Google API
+      const kix = (window as any).kix;
+      if (kix?.api?.documentModel) {
+        try {
+          // Try to get document text from internal model
+          const model = kix.api.documentModel;
+          if (typeof model.getText === 'function') {
+            return model.getText();
+          }
+        } catch {}
       }
 
-      // Last resort: get innerText but filter out obvious UI patterns
+      // Look for document data in script tags or global state
+      // @ts-ignore
+      const docs = (window as any).docs;
+      if (docs?.document?.body) {
+        return docs.document.body;
+      }
+
+      // Fallback: get visible text, filtering aggressively
       const editor = document.querySelector('.kix-appview-editor') as HTMLElement | null;
       if (editor) {
         const text = editor.innerText || '';
-        // Filter out lines that look like UI elements
-        return text
-          .split('\n')
-          .filter((line: string) => {
-            const lower = line.toLowerCase();
-            // Skip lines that are clearly UI elements
-            if (lower.includes('assigned to') && lower.includes('pm') && lower.includes('today')) return false;
-            if (lower.includes('suggestion was deleted')) return false;
-            if (lower.includes('show more') && lower.includes('show less')) return false;
-            if (lower.includes('comment details cannot be verified')) return false;
-            if (lower.includes('gemini created these notes')) return false;
-            if (lower.includes('drag image to reposition')) return false;
-            return true;
-          })
-          .join('\n')
-          .trim();
+        const lines = text.split('\n').filter(line => {
+          const l = line.trim().toLowerCase();
+          if (!line.trim()) return false;
+          if (/^[0-9]+$/.test(line.trim())) return false;  // ruler numbers
+          if (l.includes(' pm ') || l.includes(' am ')) return false;  // timestamps
+          if (l.includes('today') && (l.includes(':') || l.includes('pm'))) return false;
+          if (l.startsWith('replace:')) return false;
+          if (l.startsWith('assigned to')) return false;
+          if (l.includes('approver')) return false;
+          if (l === 'you') return false;
+          return true;
+        });
+        return lines.join('\n').trim();
       }
 
       return '';
     });
 
+    logger.debug("Body text extracted", { length: text.length, preview: text.slice(0, 100) });
     return text;
   }
 
