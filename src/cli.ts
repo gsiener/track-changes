@@ -53,7 +53,7 @@ program
       } else {
         // Fall back to browser-based reading
         logger.info("No service account configured, using browser to read document...");
-        const context = await session.launch(false);
+        const context = await session.launch(true); // headless
         const page = await context.newPage();
         const browserReader = new BrowserDocsReader(page);
         document = await browserReader.readDocument(url);
@@ -107,7 +107,7 @@ program
           // Get or create browser context
           let context = session.getContext();
           if (!context) {
-            context = await session.launch(false);
+            context = await session.launch(true); // headless
           }
           const page = await context.newPage();
           const writer = new DocsWriter(page);
@@ -138,24 +138,26 @@ program
       logger.info("Opening browser for manual Google login...");
       console.log("\n🔐 Please log into Google with the Claude account:");
       console.log(`   Email: ${config.claudeGoogleEmail}`);
-      console.log("\nThe browser will open. Log in, then press Enter here when done.\n");
+      console.log("\nA browser will open. Log in, then it will auto-detect and save.\n");
 
       const session = new BrowserSession();
       const page = await session.launchForLogin();
 
-      // Navigate to Google login
-      await page.goto("https://accounts.google.com");
+      // Navigate to Google Docs directly - will redirect to login if needed
+      await page.goto("https://docs.google.com");
 
-      // Wait for user to press Enter
-      await new Promise<void>((resolve) => {
-        process.stdin.once("data", () => resolve());
-      });
+      console.log("⏳ Waiting for you to log in...");
+
+      // Wait until we're on docs.google.com (not accounts.google.com)
+      await page.waitForURL("https://docs.google.com/**", { timeout: 120000 });
+
+      console.log("✅ Login detected!");
 
       // Save session
       await session.saveSession();
       await session.close();
 
-      console.log("✅ Login session saved! You can now use the review command.");
+      console.log("✅ Session saved! You can now use the review command.");
 
     } catch (error) {
       logger.error("Login failed", { error: String(error) });

@@ -66,8 +66,24 @@ export class DocumentAnalyzer {
       throw new Error("No text response from Claude");
     }
 
-    const rawJson = textContent.text;
+    let rawJson = textContent.text;
     logger.debug("Raw Claude response", { response: rawJson });
+
+    // Extract JSON from response - handle text before/after and markdown fences
+    rawJson = rawJson.trim();
+
+    // Find JSON block in markdown fence
+    const fenceMatch = rawJson.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenceMatch) {
+      rawJson = fenceMatch[1].trim();
+    } else if (!rawJson.startsWith("{")) {
+      // Try to find JSON object in the response
+      const jsonStart = rawJson.indexOf("{");
+      const jsonEnd = rawJson.lastIndexOf("}");
+      if (jsonStart !== -1 && jsonEnd !== -1) {
+        rawJson = rawJson.slice(jsonStart, jsonEnd + 1);
+      }
+    }
 
     // Parse and validate JSON
     let parsed: unknown;

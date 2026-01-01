@@ -16,8 +16,8 @@ export class BrowserDocsReader {
   async readDocument(url: string): Promise<DocumentContent> {
     logger.info("Reading document via browser", { url });
 
-    await this.page.goto(url, { waitUntil: "networkidle" });
-    await this.page.waitForTimeout(3000); // Let doc fully load
+    await this.page.goto(url, { waitUntil: "load", timeout: 60000 });
+    await this.page.waitForTimeout(5000); // Let doc fully render
 
     // Extract document title
     const title = await this.page.title();
