@@ -63,15 +63,22 @@ This opens a browser for manual login. The session is saved for future automated
 ## Usage
 
 ```bash
-# Review a document
-npm run dev -- review "https://docs.google.com/document/d/YOUR_DOC_ID/edit"
+# Review a document (one-time pass)
+npm run dev -- "https://docs.google.com/document/d/YOUR_DOC_ID/edit"
 
-# With focus instructions
-npm run dev -- review "URL" --prompt "focus on clarity and technical accuracy"
-
-# Dry run (analyze only, don't apply changes)
-npm run dev -- review "URL" --dry-run
+# With verbose logging
+npm run dev -- "URL" -v
 ```
+
+### How it works
+
+When you run the CLI with a Google Doc URL:
+
+1. **Reads** the document content and comments
+2. **Finds** comments where Claude is @mentioned (e.g., "@claude make this better")
+3. **Analyzes** the document with Claude
+4. **Makes** suggested edits as native Google Docs suggestions
+5. **Replies** to comment threads with what it did
 
 ## Development
 
