@@ -43,6 +43,7 @@ Your output must be valid JSON matching this schema:
 Guidelines:
 - For suggestions: use exact text matches. Include contextBefore if the text appears multiple times.
 - Keep suggestions focused and minimal - don't rewrite unless necessary.
+- IMPORTANT: Each suggestion must be SHORT (under 500 characters). Don't replace entire sections - make targeted edits to sentences or paragraphs. Multiple small suggestions are better than one large replacement.
 - IMPORTANT: Do NOT use markdown formatting (like **bold**, _italic_, # headers) in suggestions. Google Docs does not render markdown - it will show literal asterisks. Write plain text only.
 - For @mentioned comments: ALWAYS reply with what action you took. Keep reply to 1 sentence.
 - For other comments asking questions: answer helpfully in commentReplies.
