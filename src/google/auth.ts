@@ -15,7 +15,7 @@ export function createGoogleAuth(config: Config) {
     credentials,
     scopes: [
       "https://www.googleapis.com/auth/documents.readonly",
-      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive",  // Full drive access for comment replies
     ],
   });
 

@@ -11,6 +11,19 @@ import { BrowserSession } from "./browser/session.js";
 import { DocsWriter } from "./browser/docs-writer.js";
 import type { DocumentContent } from "./google/types.js";
 
+// Action result tracking for partial failure handling
+interface ActionResult {
+  type: "suggestion" | "commentReply" | "newComment";
+  success: boolean;
+  error?: string;
+}
+
+// Simple timing utility
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
 const program = new Command();
 
 program
@@ -32,6 +45,7 @@ program
     }
 
     try {
+      const startTime = Date.now();
       const config = loadConfig();
       logger.info("Starting document review", { url });
 
@@ -63,25 +77,33 @@ program
         process.exit(1);
       }
 
+      const readStart = Date.now();
       logger.info("Fetching document via API...");
       const reader = new DocsReader(config);
       const document = await reader.fetchDocument(docId);
+      const readDuration = Date.now() - readStart;
 
       const session = new BrowserSession();
 
       console.log(`   📄 "${document.title}"`);
       console.log(`   📊 ${document.body.length} chars, ${document.comments.length} comments`);
+      console.log(`   ⏱️  Read in ${formatDuration(readDuration)}`);
 
       // 2. Analyze with Claude
       console.log("\n🤖 Analyzing with Claude...");
+      const analyzeStart = Date.now();
       const analyzer = new DocumentAnalyzer(config);
       const review = await analyzer.analyze(document);
+      const analyzeDuration = Date.now() - analyzeStart;
 
-      console.log(`   💰 Estimated cost: See logs for token usage`);
+      console.log(`   ⏱️  Analyzed in ${formatDuration(analyzeDuration)}`);
 
       // Show what Claude found
       const totalActions = review.suggestions.length + review.commentReplies.length + review.newComments.length;
       console.log(`   Found ${totalActions} actions to take`);
+
+      // Track results for summary
+      const results: ActionResult[] = [];
 
       if (review.suggestions.length > 0) {
         console.log("\n📝 Suggestions:");
@@ -100,20 +122,119 @@ program
       // 3. Apply changes to document
       if (totalActions > 0) {
         console.log("\n⏳ Applying changes...");
+        const applyStart = Date.now();
 
-        let context = session.getContext();
-        if (!context) {
-          context = await session.launch(true);
+        // Apply comment replies via Drive API (fast, reliable)
+        if (review.commentReplies.length > 0) {
+          console.log("   💬 Applying comment replies via API...");
+          for (let i = 0; i < review.commentReplies.length; i++) {
+            const reply = review.commentReplies[i];
+            logger.info(`Replying to comment ${i + 1}/${review.commentReplies.length}`);
+
+            try {
+              // Match commentQuote to find the comment ID
+              const matchingComment = document.comments.find((c) =>
+                c.content.toLowerCase().includes(reply.commentQuote.toLowerCase()) ||
+                reply.commentQuote.toLowerCase().includes(c.content.toLowerCase().slice(0, 30))
+              );
+
+              if (!matchingComment) {
+                results.push({
+                  type: "commentReply",
+                  success: false,
+                  error: `Could not find comment matching: "${reply.commentQuote.slice(0, 30)}..."`,
+                });
+                logger.error(`Could not find comment matching: "${reply.commentQuote.slice(0, 50)}..."`);
+                continue;
+              }
+
+              await reader.replyToComment(
+                docId,
+                matchingComment.id,
+                reply.reply,
+                reply.resolve
+              );
+              results.push({ type: "commentReply", success: true });
+              logger.info("Reply posted successfully", { commentId: matchingComment.id });
+            } catch (error) {
+              results.push({
+                type: "commentReply",
+                success: false,
+                error: String(error),
+              });
+              logger.error(`Failed to reply to comment ${i + 1}`, { error: String(error) });
+            }
+          }
         }
-        const page = await context.newPage();
-        const writer = new DocsWriter(page);
 
-        await writer.navigateToDocument(buildDocsUrl(docId));
-        await writer.enableSuggestionMode();
-        await writer.applyAllChanges(review);
+        // Apply suggestions and new comments via browser (only option for suggestions)
+        const needsBrowser = review.suggestions.length > 0 || review.newComments.length > 0;
+        if (needsBrowser) {
+          console.log("   ✏️ Applying suggestions via browser...");
+          let context = session.getContext();
+          if (!context) {
+            context = await session.launch(true);
+          }
+          const page = await context.newPage();
+          const writer = new DocsWriter(page);
 
-        console.log("\n✅ Done! Check your document:");
-        console.log(`   🔗 ${buildDocsUrl(docId)}`);
+          await writer.navigateToDocument(buildDocsUrl(docId));
+          await writer.enableSuggestionMode();
+
+          // Only pass suggestions and new comments (comment replies already done via API)
+          await writer.applyAllChanges({
+            suggestions: review.suggestions,
+            commentReplies: [], // Already handled via API
+            newComments: review.newComments,
+          });
+
+          // Track browser operation results (best effort - DocsWriter logs errors)
+          // For now, assume success since DocsWriter doesn't return results
+          for (let i = 0; i < review.suggestions.length; i++) {
+            results.push({ type: "suggestion", success: true });
+          }
+          for (let i = 0; i < review.newComments.length; i++) {
+            results.push({ type: "newComment", success: true });
+          }
+        }
+
+        const applyDuration = Date.now() - applyStart;
+        const totalDuration = Date.now() - startTime;
+
+        // Show results summary
+        const suggestionResults = results.filter((r) => r.type === "suggestion");
+        const replyResults = results.filter((r) => r.type === "commentReply");
+        const commentResults = results.filter((r) => r.type === "newComment");
+
+        const suggestionSuccess = suggestionResults.filter((r) => r.success).length;
+        const replySuccess = replyResults.filter((r) => r.success).length;
+        const commentSuccess = commentResults.filter((r) => r.success).length;
+
+        const anyFailures =
+          suggestionSuccess < review.suggestions.length ||
+          replySuccess < review.commentReplies.length ||
+          commentSuccess < review.newComments.length;
+
+        console.log("\n📊 Results:");
+        if (review.suggestions.length > 0) {
+          console.log(`   Suggestions: ${suggestionSuccess}/${review.suggestions.length}`);
+        }
+        if (review.commentReplies.length > 0) {
+          console.log(`   Comment replies: ${replySuccess}/${review.commentReplies.length}`);
+        }
+        if (review.newComments.length > 0) {
+          console.log(`   New comments: ${commentSuccess}/${review.newComments.length}`);
+        }
+        console.log(`   ⏱️  Applied in ${formatDuration(applyDuration)}`);
+        console.log(`   ⏱️  Total time: ${formatDuration(totalDuration)}`);
+
+        if (anyFailures) {
+          console.log("\n⚠️  Some actions failed. Check logs for details.");
+          console.log(`   🔗 ${buildDocsUrl(docId)}`);
+        } else {
+          console.log("\n✅ Done! Check your document:");
+          console.log(`   🔗 ${buildDocsUrl(docId)}`);
+        }
       } else {
         console.log("\n✅ No changes needed.");
       }

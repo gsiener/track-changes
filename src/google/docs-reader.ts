@@ -117,4 +117,47 @@ export class DocsReader {
       return [];
     }
   }
+
+  async replyToComment(
+    documentId: string,
+    commentId: string,
+    replyText: string,
+    resolve: boolean = false
+  ): Promise<void> {
+    logger.info("Creating comment reply via Drive API", {
+      documentId,
+      commentId,
+      willResolve: resolve,
+    });
+
+    // Create the reply
+    await this.driveClient.replies.create({
+      fileId: documentId,
+      commentId: commentId,
+      requestBody: {
+        content: replyText,
+      },
+    });
+
+    logger.info("Reply created successfully");
+
+    // Resolve if requested
+    if (resolve) {
+      await this.resolveComment(documentId, commentId);
+    }
+  }
+
+  async resolveComment(documentId: string, commentId: string): Promise<void> {
+    logger.info("Resolving comment via Drive API", { documentId, commentId });
+
+    await this.driveClient.comments.update({
+      fileId: documentId,
+      commentId: commentId,
+      requestBody: {
+        resolved: true,
+      },
+    });
+
+    logger.info("Comment resolved successfully");
+  }
 }
