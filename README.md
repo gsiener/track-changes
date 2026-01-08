@@ -15,10 +15,13 @@ All using Google Docs' familiar collaboration UI.
 ## How It Works
 
 ```
-CLI → Google Docs API (read) → Claude (analyze) → Playwright (write suggestions)
+CLI → Google Docs API (read) → Claude (analyze) → Drive API (comment replies)
+                                                → Playwright (suggestions & new comments)
 ```
 
-**Key constraint:** Google's Docs API cannot create suggestions—only read them. We use browser automation (Playwright) to write suggestions while using the API to read document content.
+**Key constraints:**
+- Google's Docs API cannot create suggestions—only read them. We use browser automation (Playwright) for suggestions.
+- Comment replies use the Drive API (faster and more reliable than browser automation).
 
 ## Setup
 
@@ -100,11 +103,11 @@ npm run build
 
 ```
 src/
-├── cli.ts                    # Entry point
+├── cli.ts                    # Entry point, orchestration, partial failure tracking
 ├── config.ts                 # Environment config with zod validation
 ├── google/
 │   ├── auth.ts              # Service account setup
-│   ├── docs-reader.ts       # Fetch documents via API
+│   ├── docs-reader.ts       # Fetch documents + comment replies via Drive API
 │   └── types.ts
 ├── claude/
 │   ├── analyzer.ts          # Claude integration
@@ -112,9 +115,12 @@ src/
 │   └── types.ts             # ReviewResponse interface
 ├── browser/
 │   ├── session.ts           # Playwright persistent context
-│   ├── docs-writer.ts       # Apply suggestions via browser
+│   ├── docs-writer.ts       # Orchestrates browser operations
+│   ├── suggestion-applier.ts # Apply text suggestions via find-replace
+│   ├── new-comment-adder.ts # Add new comments anchored to text
+│   ├── page-helpers.ts      # Shared browser utilities
 │   ├── selectors.ts         # DOM selectors (isolated for maintenance)
-│   └── retry.ts             # Retry logic
+│   └── retry.ts             # Retry logic with exponential backoff
 └── utils/
     ├── logger.ts
     └── url.ts
