@@ -1,5 +1,7 @@
 # track-changes
 
+[![CI](https://github.com/gsiener/track-changes/actions/workflows/ci.yml/badge.svg)](https://github.com/gsiener/track-changes/actions/workflows/ci.yml)
+
 A CLI tool that lets Claude review Google Docs and make suggested edits that appear as native "track changes" suggestions.
 
 ## The Vision
@@ -16,11 +18,11 @@ All using Google Docs' familiar collaboration UI.
 
 ```
 CLI → Google Docs API (read) → Claude (analyze) → Drive API (comment replies)
-                                                → Playwright (suggestions & new comments)
+                                                → agent-browser (suggestions & new comments)
 ```
 
 **Key constraints:**
-- Google's Docs API cannot create suggestions—only read them. We use browser automation (Playwright) for suggestions.
+- Google's Docs API cannot create suggestions—only read them. We use browser automation (agent-browser) for suggestions.
 - Comment replies use the Drive API (faster and more reliable than browser automation).
 
 ## Setup
@@ -39,7 +41,6 @@ CLI → Google Docs API (read) → Claude (analyze) → Drive API (comment repli
 git clone https://github.com/gsiener/track-changes.git
 cd track-changes
 npm install
-npx playwright install chromium
 ```
 
 ### Configuration
@@ -103,7 +104,7 @@ npm run build
 
 ```
 src/
-├── cli.ts                    # Entry point, orchestration, partial failure tracking
+├── cli.ts                    # Entry point, orchestration
 ├── config.ts                 # Environment config with zod validation
 ├── google/
 │   ├── auth.ts              # Service account setup
@@ -114,12 +115,13 @@ src/
 │   ├── prompts.ts           # System/user prompts
 │   └── types.ts             # ReviewResponse interface
 ├── browser/
-│   ├── session.ts           # Playwright persistent context
+│   ├── agent-browser-client.ts # Wrapper around agent-browser
+│   ├── session.ts           # Browser session management
 │   ├── docs-writer.ts       # Orchestrates browser operations
 │   ├── suggestion-applier.ts # Apply text suggestions via find-replace
 │   ├── new-comment-adder.ts # Add new comments anchored to text
-│   ├── page-helpers.ts      # Shared browser utilities
-│   ├── selectors.ts         # DOM selectors (isolated for maintenance)
+│   ├── snapshot-helpers.ts  # Accessibility tree-based element finding
+│   ├── matchers.ts          # Element matchers for Google Docs UI
 │   └── retry.ts             # Retry logic with exponential backoff
 └── utils/
     ├── logger.ts
