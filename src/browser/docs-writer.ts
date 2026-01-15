@@ -4,20 +4,26 @@
  * Uses browser automation because Google Docs API cannot create suggestions.
  * This is inherently fragile - when Google changes their UI, selectors may break.
  *
- * Strategy:
- * - Use multiple fallback selectors for each element
- * - Prefer ARIA labels over class names (more stable)
- * - Take screenshots on failure for debugging
+ * Migrated to use agent-browser for more stable interactions via:
+ * - Accessibility tree snapshots with refs
+ * - Fallback to CSS selectors when snapshots fail
+ * - Screenshot debugging on failure
  *
- * Note: Comment replies are now handled via Drive API (see cli.ts), not browser.
+ * Note: Comment replies are handled via Drive API (see cli.ts), not browser.
  */
 
-import type { Page } from "playwright";
+import type { AgentBrowserClient } from "./agent-browser-client.js";
 import type { ReviewResponse } from "../claude/types.js";
-import { selectors } from "./selectors.js";
 import { withRetry } from "./retry.js";
 import { logger } from "../utils/logger.js";
-import { TIMEOUTS, clickFirst, dismissDialogs } from "./page-helpers.js";
+import {
+  TIMEOUTS,
+  wait,
+  dismissDialogs,
+  clickByMatcher,
+  clickBySelector,
+} from "./snapshot-helpers.js";
+import { matchers } from "./matchers.js";
 import { mkdir } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -27,16 +33,16 @@ import { NewCommentAdder } from "./new-comment-adder.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCREENSHOTS_DIR = join(__dirname, "../../screenshots");
 
-// Selector groups for mode switching
-const SELECTORS = {
+// CSS selector fallbacks for mode switching
+const SELECTOR_FALLBACKS = {
   modeButton: [
-    selectors.editingModeButton,
+    '[aria-label="Editing mode"]',
     "#docs-toolbar-mode-switcher",
     '[aria-label*="mode"]',
     '[data-tooltip*="Editing"]',
   ],
   suggestingOption: [
-    selectors.suggestingModeOption,
+    '[aria-label="Suggesting"]',
     '[aria-label*="Suggesting"]',
     '[data-value="suggesting"]',
   ],
@@ -46,19 +52,21 @@ export class DocsWriter {
   private suggestionApplier: SuggestionApplier;
   private newCommentAdder: NewCommentAdder;
 
-  constructor(private page: Page) {
-    this.suggestionApplier = new SuggestionApplier(page);
-    this.newCommentAdder = new NewCommentAdder(page);
+  constructor(private client: AgentBrowserClient) {
+    this.suggestionApplier = new SuggestionApplier(client);
+    this.newCommentAdder = new NewCommentAdder(client);
   }
 
   async navigateToDocument(url: string): Promise<void> {
     logger.info("Navigating to document", { url });
-    await this.page.goto(url, { waitUntil: "load", timeout: 60000 });
-    await this.page.waitForTimeout(TIMEOUTS.PAGE_LOAD);
+    const page = this.client.getPage();
+
+    await page.goto(url, { waitUntil: "load", timeout: 60000 });
+    await wait(TIMEOUTS.PAGE_LOAD);
 
     // Dismiss any onboarding dialogs that block interaction
-    await dismissDialogs(this.page);
-    await this.page.waitForTimeout(TIMEOUTS.KEY_PRESS);
+    await dismissDialogs(this.client);
+    await wait(TIMEOUTS.KEY_PRESS);
   }
 
   async enableSuggestionMode(): Promise<void> {
@@ -67,19 +75,31 @@ export class DocsWriter {
     await withRetry(async () => {
       await this.takeScreenshot("before-suggestion-mode");
 
-      // Click mode dropdown
-      await clickFirst(this.page, SELECTORS.modeButton, {
-        logPrefix: "Mode button",
-      });
-      await this.page.waitForTimeout(TIMEOUTS.MENU_OPEN);
+      // Click mode dropdown - try snapshot first, fall back to selector
+      try {
+        await clickByMatcher(this.client, matchers.editingModeButton, {
+          logPrefix: "Mode button",
+        });
+      } catch {
+        await clickBySelector(this.client, SELECTOR_FALLBACKS.modeButton, {
+          logPrefix: "Mode button (fallback)",
+        });
+      }
+      await wait(TIMEOUTS.MENU_OPEN);
 
       await this.takeScreenshot("after-mode-click");
 
       // Select "Suggesting" option
-      await clickFirst(this.page, SELECTORS.suggestingOption, {
-        logPrefix: "Suggesting option",
-      });
-      await this.page.waitForTimeout(TIMEOUTS.BUTTON_ACTION);
+      try {
+        await clickByMatcher(this.client, matchers.suggestingModeOption, {
+          logPrefix: "Suggesting option",
+        });
+      } catch {
+        await clickBySelector(this.client, SELECTOR_FALLBACKS.suggestingOption, {
+          logPrefix: "Suggesting option (fallback)",
+        });
+      }
+      await wait(TIMEOUTS.BUTTON_ACTION);
     }, "Enable suggestion mode");
 
     logger.info("Suggestion mode enabled");
@@ -129,9 +149,10 @@ export class DocsWriter {
 
   private async takeScreenshot(name: string): Promise<void> {
     try {
+      const page = this.client.getPage();
       await mkdir(SCREENSHOTS_DIR, { recursive: true });
       const path = join(SCREENSHOTS_DIR, `${name}-${Date.now()}.png`);
-      await this.page.screenshot({ path, fullPage: true });
+      await page.screenshot({ path, fullPage: true });
       logger.info("Screenshot saved", { path });
     } catch (error) {
       logger.warn("Failed to save screenshot", { error: String(error) });

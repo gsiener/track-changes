@@ -427,6 +427,7 @@ describe("DocsReader", () => {
       expect(mockRepliesCreate).toHaveBeenCalledWith({
         fileId: "doc123",
         commentId: "comment1",
+        fields: "id,content,author",
         requestBody: {
           content: "Here's my reply",
         },
@@ -456,6 +457,7 @@ describe("DocsReader", () => {
       expect(mockCommentsUpdate).toHaveBeenCalledWith({
         fileId: "doc123",
         commentId: "comment1",
+        fields: "id,resolved",
         requestBody: {
           resolved: true,
         },
@@ -474,6 +476,7 @@ describe("DocsReader", () => {
       expect(mockRepliesCreate).toHaveBeenCalledWith({
         fileId: "doc123",
         commentId: "comment1",
+        fields: "id,content,author",
         requestBody: {
           content: "Fixed!",
         },
@@ -481,6 +484,7 @@ describe("DocsReader", () => {
       expect(mockCommentsUpdate).toHaveBeenCalledWith({
         fileId: "doc123",
         commentId: "comment1",
+        fields: "id,resolved",
         requestBody: {
           resolved: true,
         },

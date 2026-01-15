@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Page, ElementHandle } from "playwright";
+import type { AgentBrowserClient } from "../src/browser/agent-browser-client.js";
 
 // Mock logger
 vi.mock("../src/utils/logger.js", () => ({
@@ -16,19 +16,23 @@ vi.mock("../src/browser/retry.js", () => ({
   withRetry: vi.fn(async (operation: () => Promise<any>) => operation()),
 }));
 
-// Mock page-helpers
-const mockFindFirst = vi.fn();
-const mockClickFirst = vi.fn();
-const mockFillFirst = vi.fn();
-const mockClickElement = vi.fn();
+// Mock snapshot-helpers
+const mockClickByMatcher = vi.fn();
+const mockFillByMatcher = vi.fn();
+const mockClickBySelector = vi.fn();
+const mockFillBySelector = vi.fn();
 const mockDismissDialogs = vi.fn();
+const mockFindElementByMatcher = vi.fn();
+const mockWait = vi.fn();
 
-vi.mock("../src/browser/page-helpers.js", () => ({
-  findFirst: mockFindFirst,
-  clickFirst: mockClickFirst,
-  fillFirst: mockFillFirst,
-  clickElement: mockClickElement,
+vi.mock("../src/browser/snapshot-helpers.js", () => ({
+  clickByMatcher: mockClickByMatcher,
+  fillByMatcher: mockFillByMatcher,
+  clickBySelector: mockClickBySelector,
+  fillBySelector: mockFillBySelector,
   dismissDialogs: mockDismissDialogs,
+  findElementByMatcher: mockFindElementByMatcher,
+  wait: mockWait,
   TIMEOUTS: {
     PAGE_LOAD: 100,
     MENU_OPEN: 50,
@@ -41,66 +45,70 @@ vi.mock("../src/browser/page-helpers.js", () => ({
   },
 }));
 
-// Mock selectors
-vi.mock("../src/browser/selectors.js", () => ({
-  selectors: {
-    editingModeButton: '[data-tooltip*="mode"]',
-    suggestingModeOption: '[aria-label*="Suggesting"]',
-    commentThread: '.docos-anchoredreplyview',
-    resolveButton: '.docos-resolve-button',
-    commentTextarea: 'textarea[aria-label*="comment"]',
-    submitCommentButton: 'button[aria-label*="Comment"]',
+// Mock matchers
+vi.mock("../src/browser/matchers.js", () => ({
+  matchers: {
+    editMenu: [{ role: "menuitem", name: /Edit/i }],
+    findAndReplaceMenuItem: [{ role: "menuitem", text: /Find and replace/i }],
+    findInput: [{ role: "textbox", name: /find/i }],
+    commentTextarea: [{ role: "textbox", name: /comment/i }],
+    submitCommentButton: [{ role: "button", name: /Comment/i }],
   },
 }));
 
-function createMockPage(): Page {
-  return {
-    goto: vi.fn().mockResolvedValue(undefined),
-    waitForTimeout: vi.fn().mockResolvedValue(undefined),
+function createMockClient(): AgentBrowserClient {
+  const mockElement = {
+    fill: vi.fn().mockResolvedValue(undefined),
     click: vi.fn().mockResolvedValue(undefined),
-    $: vi.fn().mockResolvedValue(null),
+    textContent: vi.fn().mockResolvedValue(""),
+  };
+
+  const mockPage = {
+    goto: vi.fn().mockResolvedValue(undefined),
+    click: vi.fn().mockResolvedValue(undefined),
+    $: vi.fn().mockResolvedValue(mockElement),
     $$: vi.fn().mockResolvedValue([]),
     keyboard: {
       press: vi.fn().mockResolvedValue(undefined),
       type: vi.fn().mockResolvedValue(undefined),
     },
     screenshot: vi.fn().mockResolvedValue(undefined),
-  } as unknown as Page;
-}
+  };
 
-function createMockElement(): ElementHandle {
   return {
-    scrollIntoViewIfNeeded: vi.fn().mockResolvedValue(undefined),
-    click: vi.fn().mockResolvedValue(undefined),
-    fill: vi.fn().mockResolvedValue(undefined),
-    textContent: vi.fn().mockResolvedValue(""),
-  } as unknown as ElementHandle;
+    getPage: vi.fn().mockReturnValue(mockPage),
+    getSnapshot: vi.fn().mockResolvedValue({ tree: "", refs: {} }),
+    getRefMap: vi.fn().mockReturnValue({}),
+    getLocatorFromRef: vi.fn().mockReturnValue(null),
+    getLocator: vi.fn().mockReturnValue(null),
+    isRef: vi.fn().mockReturnValue(false),
+    launch: vi.fn().mockResolvedValue(undefined),
+    saveStorageState: vi.fn().mockResolvedValue(undefined),
+    setViewport: vi.fn().mockResolvedValue(undefined),
+    isLaunched: vi.fn().mockReturnValue(true),
+    close: vi.fn().mockResolvedValue(undefined),
+  } as unknown as AgentBrowserClient;
 }
 
 describe("NewCommentAdder", () => {
-  let mockPage: Page;
+  let mockClient: AgentBrowserClient;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPage = createMockPage();
-    mockFindFirst.mockResolvedValue(null);
-    mockClickFirst.mockResolvedValue(undefined);
-    mockFillFirst.mockResolvedValue(undefined);
-    mockClickElement.mockResolvedValue(undefined);
+    mockClient = createMockClient();
+    mockClickByMatcher.mockResolvedValue(undefined);
+    mockFillByMatcher.mockResolvedValue(undefined);
+    mockClickBySelector.mockResolvedValue(undefined);
+    mockFillBySelector.mockResolvedValue(undefined);
     mockDismissDialogs.mockResolvedValue(undefined);
+    mockFindElementByMatcher.mockResolvedValue(null);
+    mockWait.mockResolvedValue(undefined);
   });
 
   describe("addNewComment", () => {
     it("should find anchor text via find-replace dialog", async () => {
-      const mockTextarea = createMockElement();
-      const mockSubmitBtn = createMockElement();
-
-      mockFindFirst
-        .mockResolvedValueOnce(mockTextarea)
-        .mockResolvedValueOnce(mockSubmitBtn);
-
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
-      const writer = new DocsWriter(mockPage);
+      const writer = new DocsWriter(mockClient);
 
       await writer.applyAllChanges({
         suggestions: [],
@@ -113,28 +121,18 @@ describe("NewCommentAdder", () => {
         ],
       });
 
-      // Should open find dialog and search for anchor text
-      expect(mockFillFirst).toHaveBeenCalledWith(
-        mockPage,
+      // Should fill find input with anchor text
+      expect(mockFillByMatcher).toHaveBeenCalledWith(
+        mockClient,
         expect.any(Array),
         "text to anchor on",
         expect.any(Object)
       );
-
-      // Should press Enter to search
-      expect(mockPage.keyboard.press).toHaveBeenCalledWith("Enter");
     });
 
     it("should open comment dialog with keyboard shortcut", async () => {
-      const mockTextarea = createMockElement();
-      const mockSubmitBtn = createMockElement();
-
-      mockFindFirst
-        .mockResolvedValueOnce(mockTextarea)
-        .mockResolvedValueOnce(mockSubmitBtn);
-
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
-      const writer = new DocsWriter(mockPage);
+      const writer = new DocsWriter(mockClient);
 
       await writer.applyAllChanges({
         suggestions: [],
@@ -148,19 +146,13 @@ describe("NewCommentAdder", () => {
       });
 
       // Should press Meta+Alt+m to add comment
+      const mockPage = mockClient.getPage();
       expect(mockPage.keyboard.press).toHaveBeenCalledWith("Meta+Alt+m");
     });
 
-    it("should fill comment textarea and submit", async () => {
-      const mockTextarea = createMockElement();
-      const mockSubmitBtn = createMockElement();
-
-      mockFindFirst
-        .mockResolvedValueOnce(mockTextarea)
-        .mockResolvedValueOnce(mockSubmitBtn);
-
+    it("should fill comment textarea", async () => {
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
-      const writer = new DocsWriter(mockPage);
+      const writer = new DocsWriter(mockClient);
 
       await writer.applyAllChanges({
         suggestions: [],
@@ -173,22 +165,50 @@ describe("NewCommentAdder", () => {
         ],
       });
 
-      // Textarea should be filled with comment
-      expect(mockTextarea.fill).toHaveBeenCalledWith("My detailed comment here");
+      // Textarea should be filled with comment via fillByMatcher
+      expect(mockFillByMatcher).toHaveBeenCalledWith(
+        mockClient,
+        expect.any(Array),
+        "My detailed comment here",
+        expect.any(Object)
+      );
+    });
 
-      // Submit button should be clicked
-      expect(mockSubmitBtn.click).toHaveBeenCalled();
+    it("should submit comment via clickByMatcher", async () => {
+      const { DocsWriter } = await import("../src/browser/docs-writer.js");
+      const writer = new DocsWriter(mockClient);
+
+      await writer.applyAllChanges({
+        suggestions: [],
+        commentReplies: [],
+        newComments: [
+          {
+            anchorText: "anchor",
+            comment: "comment",
+          },
+        ],
+      });
+
+      // Submit button should be clicked via clickByMatcher
+      expect(mockClickByMatcher).toHaveBeenCalledWith(
+        mockClient,
+        expect.any(Array),
+        expect.objectContaining({ logPrefix: "Submit comment" })
+      );
     });
 
     it("should use keyboard shortcut when submit button not found", async () => {
-      const mockTextarea = createMockElement();
-
-      mockFindFirst
-        .mockResolvedValueOnce(mockTextarea)
-        .mockResolvedValueOnce(null); // No submit button
+      // Make clickByMatcher fail for submit button
+      mockClickByMatcher.mockImplementation((client, matchers, options) => {
+        if (options?.logPrefix === "Submit comment") {
+          return Promise.reject(new Error("Not found"));
+        }
+        return Promise.resolve(undefined);
+      });
+      mockClickBySelector.mockRejectedValue(new Error("Not found"));
 
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
-      const writer = new DocsWriter(mockPage);
+      const writer = new DocsWriter(mockClient);
 
       await writer.applyAllChanges({
         suggestions: [],
@@ -202,19 +222,13 @@ describe("NewCommentAdder", () => {
       });
 
       // Should use Meta+Enter as fallback
+      const mockPage = mockClient.getPage();
       expect(mockPage.keyboard.press).toHaveBeenCalledWith("Meta+Enter");
     });
 
     it("should close find dialog before adding comment", async () => {
-      const mockTextarea = createMockElement();
-      const mockSubmitBtn = createMockElement();
-
-      mockFindFirst
-        .mockResolvedValueOnce(mockTextarea)
-        .mockResolvedValueOnce(mockSubmitBtn);
-
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
-      const writer = new DocsWriter(mockPage);
+      const writer = new DocsWriter(mockClient);
 
       await writer.applyAllChanges({
         suggestions: [],
@@ -228,45 +242,13 @@ describe("NewCommentAdder", () => {
       });
 
       // Should press Escape to close find dialog (keeps selection)
+      const mockPage = mockClient.getPage();
       expect(mockPage.keyboard.press).toHaveBeenCalledWith("Escape");
     });
 
-    it("should handle missing textarea gracefully", async () => {
-      mockFindFirst.mockResolvedValue(null);
-
-      const { DocsWriter } = await import("../src/browser/docs-writer.js");
-      const writer = new DocsWriter(mockPage);
-
-      // Should not throw
-      await writer.applyAllChanges({
-        suggestions: [],
-        commentReplies: [],
-        newComments: [
-          {
-            anchorText: "anchor",
-            comment: "comment",
-          },
-        ],
-      });
-
-      // Should log warning but continue
-      const { logger } = await import("../src/utils/logger.js");
-      expect(logger.warn).toHaveBeenCalled();
-    });
-
     it("should handle multiple new comments sequentially", async () => {
-      const mockTextarea = createMockElement();
-      const mockSubmitBtn = createMockElement();
-
-      mockFindFirst.mockResolvedValue(mockTextarea);
-      mockFindFirst
-        .mockResolvedValueOnce(mockTextarea)
-        .mockResolvedValueOnce(mockSubmitBtn)
-        .mockResolvedValueOnce(mockTextarea)
-        .mockResolvedValueOnce(mockSubmitBtn);
-
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
-      const writer = new DocsWriter(mockPage);
+      const writer = new DocsWriter(mockClient);
 
       await writer.applyAllChanges({
         suggestions: [],
@@ -277,19 +259,49 @@ describe("NewCommentAdder", () => {
         ],
       });
 
-      // Both anchor texts should be searched
-      expect(mockFillFirst).toHaveBeenCalledWith(
-        mockPage,
+      // Both anchor texts should be searched via fillByMatcher
+      expect(mockFillByMatcher).toHaveBeenCalledWith(
+        mockClient,
         expect.any(Array),
         "anchor1",
         expect.any(Object)
       );
-      expect(mockFillFirst).toHaveBeenCalledWith(
-        mockPage,
+      expect(mockFillByMatcher).toHaveBeenCalledWith(
+        mockClient,
         expect.any(Array),
         "anchor2",
         expect.any(Object)
       );
+    });
+
+    it("should handle failure gracefully and continue", async () => {
+      // Make fillByMatcher fail for first comment's textarea
+      let callCount = 0;
+      mockFillByMatcher.mockImplementation((client, matchers, text, options) => {
+        callCount++;
+        // Fail on 3rd call (first comment's textarea - after anchor1 and Enter)
+        if (callCount === 2) {
+          return Promise.reject(new Error("Element not found"));
+        }
+        return Promise.resolve(undefined);
+      });
+      mockFillBySelector.mockRejectedValue(new Error("Element not found"));
+
+      const { DocsWriter } = await import("../src/browser/docs-writer.js");
+      const writer = new DocsWriter(mockClient);
+
+      // Should not throw
+      await writer.applyAllChanges({
+        suggestions: [],
+        commentReplies: [],
+        newComments: [
+          { anchorText: "anchor1", comment: "comment1" },
+        ],
+      });
+
+      // Screenshot should be taken on failure
+      const mockPage = mockClient.getPage();
+      expect(mockPage.screenshot).toHaveBeenCalled();
     });
   });
 });

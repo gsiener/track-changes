@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Page } from "playwright";
+import type { AgentBrowserClient } from "../src/browser/agent-browser-client.js";
 
 // Mock logger
 vi.mock("../src/utils/logger.js", () => ({
@@ -16,19 +16,21 @@ vi.mock("../src/browser/retry.js", () => ({
   withRetry: vi.fn(async (operation: () => Promise<any>) => operation()),
 }));
 
-// Mock page-helpers
-const mockFindFirst = vi.fn();
-const mockClickFirst = vi.fn();
-const mockFillFirst = vi.fn();
-const mockClickElement = vi.fn();
+// Mock snapshot-helpers
+const mockClickByMatcher = vi.fn();
+const mockFillByMatcher = vi.fn();
+const mockClickBySelector = vi.fn();
+const mockFillBySelector = vi.fn();
 const mockDismissDialogs = vi.fn();
+const mockWait = vi.fn();
 
-vi.mock("../src/browser/page-helpers.js", () => ({
-  findFirst: mockFindFirst,
-  clickFirst: mockClickFirst,
-  fillFirst: mockFillFirst,
-  clickElement: mockClickElement,
+vi.mock("../src/browser/snapshot-helpers.js", () => ({
+  clickByMatcher: mockClickByMatcher,
+  fillByMatcher: mockFillByMatcher,
+  clickBySelector: mockClickBySelector,
+  fillBySelector: mockFillBySelector,
   dismissDialogs: mockDismissDialogs,
+  wait: mockWait,
   TIMEOUTS: {
     PAGE_LOAD: 100,
     MENU_OPEN: 50,
@@ -41,16 +43,26 @@ vi.mock("../src/browser/page-helpers.js", () => ({
   },
 }));
 
-function createMockPage(): Page {
+// Mock matchers
+vi.mock("../src/browser/matchers.js", () => ({
+  matchers: {
+    editMenu: [{ role: "menuitem", name: /Edit/i }],
+    findAndReplaceMenuItem: [{ role: "menuitem", text: /Find and replace/i }],
+    findInput: [{ role: "textbox", name: /find/i }],
+    replaceInput: [{ role: "textbox", name: /replace/i }],
+    replaceButton: [{ role: "button", text: "Replace" }],
+  },
+}));
+
+function createMockClient(): AgentBrowserClient {
   const mockElement = {
     fill: vi.fn().mockResolvedValue(undefined),
     click: vi.fn().mockResolvedValue(undefined),
     textContent: vi.fn().mockResolvedValue("Replace"),
   };
 
-  return {
+  const mockPage = {
     goto: vi.fn().mockResolvedValue(undefined),
-    waitForTimeout: vi.fn().mockResolvedValue(undefined),
     click: vi.fn().mockResolvedValue(undefined),
     $: vi.fn().mockResolvedValue(mockElement),
     $$: vi.fn().mockResolvedValue([mockElement]),
@@ -59,131 +71,144 @@ function createMockPage(): Page {
       type: vi.fn().mockResolvedValue(undefined),
     },
     screenshot: vi.fn().mockResolvedValue(undefined),
-  } as unknown as Page;
+  };
+
+  return {
+    getPage: vi.fn().mockReturnValue(mockPage),
+    getSnapshot: vi.fn().mockResolvedValue({ tree: "", refs: {} }),
+    getRefMap: vi.fn().mockReturnValue({}),
+    getLocatorFromRef: vi.fn().mockReturnValue(null),
+    getLocator: vi.fn().mockReturnValue(null),
+    isRef: vi.fn().mockReturnValue(false),
+    launch: vi.fn().mockResolvedValue(undefined),
+    saveStorageState: vi.fn().mockResolvedValue(undefined),
+    setViewport: vi.fn().mockResolvedValue(undefined),
+    isLaunched: vi.fn().mockReturnValue(true),
+    close: vi.fn().mockResolvedValue(undefined),
+  } as unknown as AgentBrowserClient;
 }
 
 describe("SuggestionApplier", () => {
-  let mockPage: Page;
+  let mockClient: AgentBrowserClient;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPage = createMockPage();
-    mockFindFirst.mockResolvedValue(null);
-    mockClickFirst.mockResolvedValue(undefined);
-    mockFillFirst.mockResolvedValue(undefined);
-    mockClickElement.mockResolvedValue(undefined);
+    mockClient = createMockClient();
+    mockClickByMatcher.mockResolvedValue(undefined);
+    mockFillByMatcher.mockResolvedValue(undefined);
+    mockClickBySelector.mockResolvedValue(undefined);
+    mockFillBySelector.mockResolvedValue(undefined);
     mockDismissDialogs.mockResolvedValue(undefined);
+    mockWait.mockResolvedValue(undefined);
   });
 
   describe("applySuggestion", () => {
-    it("should fill find text and trigger search", async () => {
-      const mockReplaceInput = {
-        fill: vi.fn().mockResolvedValue(undefined),
-      };
-      mockFindFirst.mockResolvedValue(mockReplaceInput);
-
-      const mockButton = {
-        textContent: vi.fn().mockResolvedValue("Replace"),
-      };
-      (mockPage.$$ as any).mockResolvedValue([mockButton]);
-
+    it("should fill find text via fillByMatcher", async () => {
       const { SuggestionApplier } = await import("../src/browser/suggestion-applier.js");
-      const applier = new SuggestionApplier(mockPage);
+      const applier = new SuggestionApplier(mockClient);
 
       await applier.applySuggestion({
         findText: "old text",
         replaceWith: "new text",
       });
 
-      // Verify fillFirst was called with find input
-      expect(mockFillFirst).toHaveBeenCalledWith(
-        mockPage,
+      // Verify fillByMatcher was called for find input
+      expect(mockFillByMatcher).toHaveBeenCalledWith(
+        mockClient,
         expect.any(Array),
         "old text",
         expect.any(Object)
       );
     });
 
-    it("should fill replace text and click replace button", async () => {
-      const mockReplaceInput = {
-        fill: vi.fn().mockResolvedValue(undefined),
-      };
-      mockFindFirst.mockResolvedValue(mockReplaceInput);
-
-      const mockButton = {
-        textContent: vi.fn().mockResolvedValue("Replace"),
-      };
-      (mockPage.$$ as any).mockResolvedValue([mockButton]);
-
+    it("should fill replace text via fillByMatcher", async () => {
       const { SuggestionApplier } = await import("../src/browser/suggestion-applier.js");
-      const applier = new SuggestionApplier(mockPage);
+      const applier = new SuggestionApplier(mockClient);
 
       await applier.applySuggestion({ findText: "old", replaceWith: "new" });
 
-      // Verify replace input was filled
-      expect(mockReplaceInput.fill).toHaveBeenCalledWith("new");
+      // Verify fillByMatcher was called for replace input
+      expect(mockFillByMatcher).toHaveBeenCalledWith(
+        mockClient,
+        expect.any(Array),
+        "new",
+        expect.any(Object)
+      );
     });
 
-    it("should throw when replace input not found", async () => {
-      // Return null for replace input
-      mockFindFirst.mockResolvedValue(null);
-      (mockPage.$$ as any).mockResolvedValue([]);
+    it("should fall back to selector when matcher fails", async () => {
+      // Make fillByMatcher fail on first call (find input)
+      mockFillByMatcher
+        .mockRejectedValueOnce(new Error("Matcher failed"))
+        .mockResolvedValueOnce(undefined);
 
       const { SuggestionApplier } = await import("../src/browser/suggestion-applier.js");
-      const applier = new SuggestionApplier(mockPage);
+      const applier = new SuggestionApplier(mockClient);
 
-      await expect(
-        applier.applySuggestion({ findText: "old", replaceWith: "new" })
-      ).rejects.toThrow("Replace input not found");
+      await applier.applySuggestion({ findText: "old", replaceWith: "new" });
+
+      // Verify fallback to fillBySelector was called
+      expect(mockFillBySelector).toHaveBeenCalled();
     });
 
-    it("should close dialog after operation", async () => {
-      const mockReplaceInput = {
-        fill: vi.fn().mockResolvedValue(undefined),
-      };
-      mockFindFirst.mockResolvedValue(mockReplaceInput);
-
-      const mockButton = {
-        textContent: vi.fn().mockResolvedValue("Replace"),
-      };
-      (mockPage.$$ as any).mockResolvedValue([mockButton]);
-
+    it("should close dialog after operation with Escape", async () => {
       const { SuggestionApplier } = await import("../src/browser/suggestion-applier.js");
-      const applier = new SuggestionApplier(mockPage);
+      const applier = new SuggestionApplier(mockClient);
 
       await applier.applySuggestion({ findText: "old", replaceWith: "new" });
 
       // Verify Escape was pressed to close dialog
+      const mockPage = mockClient.getPage();
       expect(mockPage.keyboard.press).toHaveBeenCalledWith("Escape");
+    });
+
+    it("should click replace button via clickByMatcher", async () => {
+      const { SuggestionApplier } = await import("../src/browser/suggestion-applier.js");
+      const applier = new SuggestionApplier(mockClient);
+
+      await applier.applySuggestion({ findText: "old", replaceWith: "new" });
+
+      // Verify clickByMatcher was called for replace button
+      expect(mockClickByMatcher).toHaveBeenCalledWith(
+        mockClient,
+        expect.any(Array),
+        expect.objectContaining({ logPrefix: "Replace button" })
+      );
     });
   });
 
   describe("openFindReplaceDialog", () => {
-    it("should click Edit menu then Find and replace", async () => {
+    it("should click Edit menu via clickByMatcher", async () => {
       const { SuggestionApplier } = await import("../src/browser/suggestion-applier.js");
-      const applier = new SuggestionApplier(mockPage);
+      const applier = new SuggestionApplier(mockClient);
 
       await applier.openFindReplaceDialog();
 
-      expect(mockPage.click).toHaveBeenCalledWith('div[id="docs-edit-menu"]');
-      expect(mockPage.click).toHaveBeenCalledWith('span:has-text("Find and replace")');
+      expect(mockClickByMatcher).toHaveBeenCalledWith(
+        mockClient,
+        expect.any(Array),
+        expect.objectContaining({ logPrefix: "Edit menu" })
+      );
+    });
+
+    it("should click Find and Replace menu item via clickByMatcher", async () => {
+      const { SuggestionApplier } = await import("../src/browser/suggestion-applier.js");
+      const applier = new SuggestionApplier(mockClient);
+
+      await applier.openFindReplaceDialog();
+
+      expect(mockClickByMatcher).toHaveBeenCalledWith(
+        mockClient,
+        expect.any(Array),
+        expect.objectContaining({ logPrefix: "Find and replace" })
+      );
     });
   });
 
   describe("via DocsWriter", () => {
     it("should delegate to SuggestionApplier", async () => {
-      const mockReplaceInput = {
-        fill: vi.fn().mockResolvedValue(undefined),
-      };
-      mockFindFirst.mockResolvedValue(mockReplaceInput);
-
-      const mockButton = {
-        textContent: vi.fn().mockResolvedValue("Replace"),
-      };
-      (mockPage.$$ as any).mockResolvedValue([mockButton]);
-
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
-      const writer = new DocsWriter(mockPage);
+      const writer = new DocsWriter(mockClient);
 
       await writer.applyAllChanges({
         suggestions: [{ findText: "old", replaceWith: "new" }],
@@ -191,17 +216,17 @@ describe("SuggestionApplier", () => {
         newComments: [],
       });
 
-      // Verify fillFirst was called (delegation to SuggestionApplier worked)
-      expect(mockFillFirst).toHaveBeenCalled();
+      // Verify fillByMatcher was called (delegation to SuggestionApplier worked)
+      expect(mockFillByMatcher).toHaveBeenCalled();
     });
 
     it("should handle suggestion failure gracefully", async () => {
-      // Return null for replace input to trigger failure
-      mockFindFirst.mockResolvedValue(null);
-      (mockPage.$$ as any).mockResolvedValue([]);
+      // Make all matchers fail to trigger error path
+      mockFillByMatcher.mockRejectedValue(new Error("Element not found"));
+      mockFillBySelector.mockRejectedValue(new Error("Element not found"));
 
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
-      const writer = new DocsWriter(mockPage);
+      const writer = new DocsWriter(mockClient);
 
       // Should not throw, but log error and take screenshot
       await writer.applyAllChanges({
@@ -211,6 +236,7 @@ describe("SuggestionApplier", () => {
       });
 
       // Screenshot should have been taken on failure
+      const mockPage = mockClient.getPage();
       expect(mockPage.screenshot).toHaveBeenCalled();
     });
   });

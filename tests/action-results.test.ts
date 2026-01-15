@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Page } from "playwright";
+import type { AgentBrowserClient } from "../src/browser/agent-browser-client.js";
 
 /**
  * Action Results Tracking Tests
@@ -27,19 +27,21 @@ vi.mock("../src/browser/retry.js", () => ({
   withRetry: vi.fn(async (operation: () => Promise<any>) => operation()),
 }));
 
-// Mock page-helpers
-const mockFindFirst = vi.fn();
-const mockClickFirst = vi.fn();
-const mockFillFirst = vi.fn();
-const mockClickElement = vi.fn();
+// Mock snapshot-helpers
+const mockClickByMatcher = vi.fn();
+const mockFillByMatcher = vi.fn();
+const mockClickBySelector = vi.fn();
+const mockFillBySelector = vi.fn();
 const mockDismissDialogs = vi.fn();
+const mockWait = vi.fn();
 
-vi.mock("../src/browser/page-helpers.js", () => ({
-  findFirst: mockFindFirst,
-  clickFirst: mockClickFirst,
-  fillFirst: mockFillFirst,
-  clickElement: mockClickElement,
+vi.mock("../src/browser/snapshot-helpers.js", () => ({
+  clickByMatcher: mockClickByMatcher,
+  fillByMatcher: mockFillByMatcher,
+  clickBySelector: mockClickBySelector,
+  fillBySelector: mockFillBySelector,
   dismissDialogs: mockDismissDialogs,
+  wait: mockWait,
   TIMEOUTS: {
     PAGE_LOAD: 100,
     MENU_OPEN: 50,
@@ -52,22 +54,24 @@ vi.mock("../src/browser/page-helpers.js", () => ({
   },
 }));
 
-// Mock selectors
-vi.mock("../src/browser/selectors.js", () => ({
-  selectors: {
-    editingModeButton: '[data-tooltip*="mode"]',
-    suggestingModeOption: '[aria-label*="Suggesting"]',
-    commentThread: '.docos-anchoredreplyview',
-    resolveButton: '.docos-resolve-button',
-    commentTextarea: 'textarea[aria-label*="comment"]',
-    submitCommentButton: 'button[aria-label*="Comment"]',
+// Mock matchers
+vi.mock("../src/browser/matchers.js", () => ({
+  matchers: {
+    editingModeButton: [{ name: "Editing mode" }],
+    suggestingModeOption: [{ name: /Suggesting/i }],
+    editMenu: [{ role: "menuitem", name: /Edit/i }],
+    findAndReplaceMenuItem: [{ role: "menuitem", text: /Find and replace/i }],
+    findInput: [{ role: "textbox", name: /find/i }],
+    replaceInput: [{ role: "textbox", name: /replace/i }],
+    replaceButton: [{ role: "button", text: "Replace" }],
+    commentTextarea: [{ role: "textbox", name: /comment/i }],
+    submitCommentButton: [{ role: "button", name: /Comment/i }],
   },
 }));
 
-function createMockPage(): Page {
-  return {
+function createMockClient(): AgentBrowserClient {
+  const mockPage = {
     goto: vi.fn().mockResolvedValue(undefined),
-    waitForTimeout: vi.fn().mockResolvedValue(undefined),
     click: vi.fn().mockResolvedValue(undefined),
     $: vi.fn().mockResolvedValue(null),
     $$: vi.fn().mockResolvedValue([]),
@@ -76,32 +80,41 @@ function createMockPage(): Page {
       type: vi.fn().mockResolvedValue(undefined),
     },
     screenshot: vi.fn().mockResolvedValue(undefined),
-  } as unknown as Page;
+  };
+
+  return {
+    getPage: vi.fn().mockReturnValue(mockPage),
+    getSnapshot: vi.fn().mockResolvedValue({ tree: "", refs: {} }),
+    getRefMap: vi.fn().mockReturnValue({}),
+    getLocatorFromRef: vi.fn().mockReturnValue(null),
+    getLocator: vi.fn().mockReturnValue(null),
+    isRef: vi.fn().mockReturnValue(false),
+    launch: vi.fn().mockResolvedValue(undefined),
+    saveStorageState: vi.fn().mockResolvedValue(undefined),
+    setViewport: vi.fn().mockResolvedValue(undefined),
+    isLaunched: vi.fn().mockReturnValue(true),
+    close: vi.fn().mockResolvedValue(undefined),
+  } as unknown as AgentBrowserClient;
 }
 
 describe("Action Results Tracking", () => {
-  let mockPage: Page;
+  let mockClient: AgentBrowserClient;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPage = createMockPage();
-    mockFindFirst.mockResolvedValue(null);
-    mockClickFirst.mockResolvedValue(undefined);
-    mockFillFirst.mockResolvedValue(undefined);
-    mockClickElement.mockResolvedValue(undefined);
+    mockClient = createMockClient();
+    mockClickByMatcher.mockResolvedValue(undefined);
+    mockFillByMatcher.mockResolvedValue(undefined);
+    mockClickBySelector.mockResolvedValue(undefined);
+    mockFillBySelector.mockResolvedValue(undefined);
     mockDismissDialogs.mockResolvedValue(undefined);
+    mockWait.mockResolvedValue(undefined);
   });
 
   describe("partial failure handling", () => {
     it("should track successful suggestions count", async () => {
-      const mockReplaceInput = { fill: vi.fn() };
-      mockFindFirst.mockResolvedValue(mockReplaceInput);
-
-      const mockButton = { textContent: vi.fn().mockResolvedValue("Replace") };
-      (mockPage.$$ as any).mockResolvedValue([mockButton]);
-
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
-      const writer = new DocsWriter(mockPage);
+      const writer = new DocsWriter(mockClient);
 
       // Apply multiple suggestions - all should succeed
       await writer.applyAllChanges({
@@ -125,28 +138,20 @@ describe("Action Results Tracking", () => {
     });
 
     it("should continue processing after individual failures", async () => {
-      // First suggestion will fail, second will succeed
+      // First suggestion will fail
       let callCount = 0;
-      mockFindFirst.mockImplementation(async () => {
+      mockFillByMatcher.mockImplementation(async () => {
         callCount++;
-        if (callCount <= 1) {
-          return null;
+        if (callCount <= 2) {
+          // First two calls (find input and replace input for first suggestion)
+          throw new Error("Element not found");
         }
-        return { fill: vi.fn() };
+        return undefined;
       });
-
-      // For clickReplaceButton
-      let buttonCallCount = 0;
-      (mockPage.$$ as any).mockImplementation(async () => {
-        buttonCallCount++;
-        if (buttonCallCount === 1) {
-          return [];
-        }
-        return [{ textContent: vi.fn().mockResolvedValue("Replace") }];
-      });
+      mockFillBySelector.mockRejectedValue(new Error("Fallback also failed"));
 
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
-      const writer = new DocsWriter(mockPage);
+      const writer = new DocsWriter(mockClient);
 
       await writer.applyAllChanges({
         suggestions: [
@@ -171,11 +176,11 @@ describe("Action Results Tracking", () => {
     });
 
     it("should track failed suggestions with error details", async () => {
-      mockFindFirst.mockResolvedValue(null);
-      (mockPage.$$ as any).mockResolvedValue([]);
+      mockFillByMatcher.mockRejectedValue(new Error("Element not found"));
+      mockFillBySelector.mockRejectedValue(new Error("Fallback also failed"));
 
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
-      const writer = new DocsWriter(mockPage);
+      const writer = new DocsWriter(mockClient);
 
       await writer.applyAllChanges({
         suggestions: [{ findText: "will fail", replaceWith: "never" }],
@@ -192,24 +197,13 @@ describe("Action Results Tracking", () => {
       );
 
       // Screenshot should be taken
+      const mockPage = mockClient.getPage();
       expect(mockPage.screenshot).toHaveBeenCalled();
     });
 
     it("should process suggestions and new comments (comment replies via API)", async () => {
-      const mockReplaceInput = { fill: vi.fn() };
-      const mockTextarea = { fill: vi.fn() };
-      const mockSubmitBtn = { click: vi.fn() };
-
-      mockFindFirst
-        .mockResolvedValueOnce(mockReplaceInput) // For suggestion
-        .mockResolvedValueOnce(mockTextarea) // For new comment textarea
-        .mockResolvedValueOnce(mockSubmitBtn); // For new comment submit
-
-      const mockButton = { textContent: vi.fn().mockResolvedValue("Replace") };
-      (mockPage.$$ as any).mockResolvedValue([mockButton]);
-
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
-      const writer = new DocsWriter(mockPage);
+      const writer = new DocsWriter(mockClient);
 
       await writer.applyAllChanges({
         suggestions: [{ findText: "old", replaceWith: "new" }],
@@ -228,13 +222,8 @@ describe("Action Results Tracking", () => {
     });
 
     it("should warn when commentReplies are passed (should be handled via API)", async () => {
-      const mockReplaceInput = { fill: vi.fn() };
-      mockFindFirst.mockResolvedValue(mockReplaceInput);
-      const mockButton = { textContent: vi.fn().mockResolvedValue("Replace") };
-      (mockPage.$$ as any).mockResolvedValue([mockButton]);
-
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
-      const writer = new DocsWriter(mockPage);
+      const writer = new DocsWriter(mockClient);
 
       await writer.applyAllChanges({
         suggestions: [],
@@ -254,13 +243,8 @@ describe("Action Results Tracking", () => {
 
   describe("summary reporting", () => {
     it("should log summary of actions attempted", async () => {
-      const mockReplaceInput = { fill: vi.fn() };
-      mockFindFirst.mockResolvedValue(mockReplaceInput);
-      const mockButton = { textContent: vi.fn().mockResolvedValue("Replace") };
-      (mockPage.$$ as any).mockResolvedValue([mockButton]);
-
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
-      const writer = new DocsWriter(mockPage);
+      const writer = new DocsWriter(mockClient);
 
       await writer.applyAllChanges({
         suggestions: [

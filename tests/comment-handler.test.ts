@@ -63,6 +63,7 @@ describe("Comment Handler (Drive API)", () => {
       expect(mockRepliesCreate).toHaveBeenCalledWith({
         fileId: "doc123",
         commentId: "comment1",
+        fields: "id,content,author",
         requestBody: {
           content: "Here's my reply",
         },
@@ -82,6 +83,7 @@ describe("Comment Handler (Drive API)", () => {
       expect(mockRepliesCreate).toHaveBeenCalledWith({
         fileId: "doc123",
         commentId: "comment1",
+        fields: "id,content,author",
         requestBody: { content: "Fixed!" },
       });
 
@@ -89,6 +91,7 @@ describe("Comment Handler (Drive API)", () => {
       expect(mockCommentsUpdate).toHaveBeenCalledWith({
         fileId: "doc123",
         commentId: "comment1",
+        fields: "id,resolved",
         requestBody: { resolved: true },
       });
     });
@@ -118,6 +121,7 @@ describe("Comment Handler (Drive API)", () => {
       expect(mockCommentsUpdate).toHaveBeenCalledWith({
         fileId: "doc123",
         commentId: "comment1",
+        fields: "id,resolved",
         requestBody: { resolved: true },
       });
     });

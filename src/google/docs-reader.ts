@@ -134,6 +134,7 @@ export class DocsReader {
     await this.driveClient.replies.create({
       fileId: documentId,
       commentId: commentId,
+      fields: "id,content,author",
       requestBody: {
         content: replyText,
       },
@@ -153,6 +154,7 @@ export class DocsReader {
     await this.driveClient.comments.update({
       fileId: documentId,
       commentId: commentId,
+      fields: "id,resolved",
       requestBody: {
         resolved: true,
       },

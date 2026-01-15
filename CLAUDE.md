@@ -8,22 +8,27 @@
 
 ### Why Browser Automation?
 
-Google's Docs API cannot create suggested edits—only read them. This is a known limitation ([issue #287903901](https://issuetracker.google.com/issues/287903901)). We use Playwright browser automation to write suggestions while using the API for reliable reading.
+Google's Docs API cannot create suggested edits—only read them. This is a known limitation ([issue #287903901](https://issuetracker.google.com/issues/287903901)). We use agent-browser (a Vercel Labs CLI wrapping Playwright) for browser automation to write suggestions while using the API for reliable reading.
 
 ### Hybrid Read/Write Strategy
 
 - **Read path**: Google Docs API via service account (fast, reliable)
-- **Write path**: Playwright browser automation (fragile but necessary)
+- **Write path**: agent-browser automation (more stable than raw Playwright)
 
 ### Text Anchoring Over Indexes
 
 Claude's suggestions use text content matching (`findText`) rather than document indexes. Indexes shift as edits are made; text anchoring is more robust for sequential operations.
 
+### Accessibility Tree-Based Element Selection
+
+Instead of CSS selectors, we use agent-browser's accessibility tree snapshots with refs (`@e1`, `@e2`) for more stable element selection. Elements are matched by role, name, and text properties. Fallback to CSS selectors when snapshots don't match.
+
 ## Development Practices
 
 - **TDD**: Write tests before implementation
-- **Isolated Selectors**: All DOM selectors in `src/browser/selectors.ts` for easy maintenance when Google's UI changes
-- **Keyboard Shortcuts**: Prefer keyboard shortcuts over DOM selectors (more stable)
+- **Isolated Matchers**: Element matchers in `src/browser/matchers.ts` for easy maintenance when Google's UI changes
+- **Keyboard Shortcuts**: Prefer keyboard shortcuts over UI selectors (most stable)
+- **Snapshot-First**: Try accessibility tree refs first, fall back to CSS selectors
 - **Retry Logic**: All browser operations use retry with exponential backoff
 
 ## Testing
@@ -38,10 +43,11 @@ npm run lint          # TypeScript type check
 
 ### Adding a New Browser Operation
 
-1. Add selector to `src/browser/selectors.ts`
-2. Write test in `tests/`
-3. Implement in `src/browser/docs-writer.ts`
-4. Wrap with `withRetry()` for resilience
+1. Add matcher to `src/browser/matchers.ts` (role, name, text patterns)
+2. Add CSS selector fallbacks if needed
+3. Write test in `tests/`
+4. Implement using `clickByMatcher()` / `fillByMatcher()` from `snapshot-helpers.ts`
+5. Wrap with `withRetry()` for resilience
 
 ### Modifying Claude's Response Format
 

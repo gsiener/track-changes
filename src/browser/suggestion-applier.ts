@@ -1,23 +1,27 @@
 /**
  * SuggestionApplier - Applies text suggestions via find-and-replace in Google Docs.
  *
- * Extracted from DocsWriter for better modularity and testability.
+ * Migrated to use agent-browser's snapshot-based element finding for more
+ * stable interactions with Google Docs' complex UI.
  */
 
-import type { Page, ElementHandle } from "playwright";
+import type { AgentBrowserClient } from "./agent-browser-client.js";
 import type { TextSuggestion } from "../claude/types.js";
 import { withRetry } from "./retry.js";
 import { logger } from "../utils/logger.js";
 import {
   TIMEOUTS,
-  findFirst,
-  fillFirst,
-  clickElement,
+  wait,
   dismissDialogs,
-} from "./page-helpers.js";
+  clickByMatcher,
+  fillByMatcher,
+  clickBySelector,
+  fillBySelector,
+} from "./snapshot-helpers.js";
+import { matchers } from "./matchers.js";
 
-// Selectors for find-replace dialog
-const SELECTORS = {
+// CSS selector fallbacks for when snapshot matching doesn't work
+const SELECTOR_FALLBACKS = {
   findInput: [
     ".docs-findinput-input",
     'input[aria-label="Find"]',
@@ -28,83 +32,112 @@ const SELECTORS = {
     'input[aria-label="Replace with"]',
     'input[aria-label*="Replace"]',
   ],
+  editMenu: [
+    'div[id="docs-edit-menu"]',
+    '[aria-label="Edit"]',
+  ],
+  findAndReplace: [
+    'span:has-text("Find and replace")',
+    '[aria-label*="Find and replace"]',
+  ],
 };
 
 export class SuggestionApplier {
-  constructor(private page: Page) {}
+  constructor(private client: AgentBrowserClient) {}
 
   async applySuggestion(suggestion: TextSuggestion): Promise<void> {
     await withRetry(async () => {
+      const page = this.client.getPage();
+
       // Dismiss any dialogs first
-      await dismissDialogs(this.page);
+      await dismissDialogs(this.client);
 
       // Open Find and Replace dialog via Edit menu
       await this.openFindReplaceDialog();
 
-      // Fill in find text
-      await fillFirst(this.page, SELECTORS.findInput, suggestion.findText, {
-        logPrefix: "Find input",
-      });
-      await this.page.waitForTimeout(TIMEOUTS.INPUT_SETTLE);
+      // Fill in find text - try snapshot first, fall back to selector
+      try {
+        await fillByMatcher(this.client, matchers.findInput, suggestion.findText, {
+          logPrefix: "Find input",
+        });
+      } catch {
+        await fillBySelector(this.client, SELECTOR_FALLBACKS.findInput, suggestion.findText, {
+          logPrefix: "Find input (fallback)",
+        });
+      }
+      await wait(TIMEOUTS.INPUT_SETTLE);
 
       // Trigger search
-      await this.page.keyboard.press("Enter");
-      await this.page.waitForTimeout(TIMEOUTS.SEARCH_COMPLETE);
+      await page.keyboard.press("Enter");
+      await wait(TIMEOUTS.SEARCH_COMPLETE);
 
-      // Fill in replacement
-      const replaceInput = await this.findReplaceInput();
-      if (!replaceInput) {
-        throw new Error("Replace input not found");
+      // Fill in replacement - try snapshot first, fall back to selector
+      try {
+        await fillByMatcher(this.client, matchers.replaceInput, suggestion.replaceWith, {
+          logPrefix: "Replace input",
+        });
+      } catch {
+        await fillBySelector(this.client, SELECTOR_FALLBACKS.replaceInput, suggestion.replaceWith, {
+          logPrefix: "Replace input (fallback)",
+        });
       }
-      await replaceInput.fill(suggestion.replaceWith);
-      await this.page.waitForTimeout(TIMEOUTS.INPUT_SETTLE);
+      await wait(TIMEOUTS.INPUT_SETTLE);
 
       // Click Replace button
       await this.clickReplaceButton();
-      await this.page.waitForTimeout(TIMEOUTS.BUTTON_ACTION);
+      await wait(TIMEOUTS.BUTTON_ACTION);
 
       // Close dialog
-      await this.page.keyboard.press("Escape");
-      await this.page.waitForTimeout(TIMEOUTS.KEY_PRESS);
+      await page.keyboard.press("Escape");
+      await wait(TIMEOUTS.KEY_PRESS);
     }, `Apply suggestion: "${suggestion.findText.slice(0, 30)}..."`);
   }
 
   async openFindReplaceDialog(): Promise<void> {
-    await this.page.click('div[id="docs-edit-menu"]');
-    await this.page.waitForTimeout(TIMEOUTS.MENU_OPEN);
-    await this.page.click('span:has-text("Find and replace")');
-    await this.page.waitForTimeout(TIMEOUTS.MENU_ACTION);
-  }
+    const page = this.client.getPage();
 
-  private async findReplaceInput(): Promise<ElementHandle | null> {
-    // Try named selectors first
-    const input = await findFirst(this.page, SELECTORS.replaceInput, {
-      logPrefix: "Replace input",
-    });
-    if (input) return input;
-
-    // Fallback: find all inputs in dialog, take the second one
-    const dialogInputs = await this.page.$$(
-      '.docs-findinput-container input, .docs-findinput-container textarea, [role="dialog"] input'
-    );
-    if (dialogInputs.length >= 2) {
-      logger.debug("Replace input found by position", {
-        index: 1,
-        total: dialogInputs.length,
-      });
-      return dialogInputs[1];
+    // Try snapshot-based clicking first, fall back to selector
+    try {
+      await clickByMatcher(this.client, matchers.editMenu, { logPrefix: "Edit menu" });
+    } catch {
+      await clickBySelector(this.client, SELECTOR_FALLBACKS.editMenu, { logPrefix: "Edit menu (fallback)" });
     }
-    return null;
+    await wait(TIMEOUTS.MENU_OPEN);
+
+    // Click Find and Replace menu item
+    try {
+      await clickByMatcher(this.client, matchers.findAndReplaceMenuItem, { logPrefix: "Find and replace" });
+    } catch {
+      await clickBySelector(this.client, SELECTOR_FALLBACKS.findAndReplace, { logPrefix: "Find and replace (fallback)" });
+    }
+    await wait(TIMEOUTS.MENU_ACTION);
   }
 
   private async clickReplaceButton(): Promise<void> {
-    // Find button with exact "Replace" text (not "Replace all")
-    const buttons = await this.page.$$('button, [role="button"]');
+    const page = this.client.getPage();
+
+    // Try snapshot-based first
+    try {
+      await clickByMatcher(this.client, matchers.replaceButton, { logPrefix: "Replace button" });
+      return;
+    } catch {
+      logger.debug("Snapshot-based replace button click failed, trying selector fallback");
+    }
+
+    // Fallback: Find button with exact "Replace" text (not "Replace all")
+    const buttons = await page.$$('button, [role="button"]');
     for (const btn of buttons) {
       const text = await btn.textContent();
       if (text?.trim() === "Replace") {
-        await clickElement(btn, { logPrefix: "Replace button" });
-        return;
+        try {
+          await btn.click();
+          logger.debug("Replace button clicked via selector fallback");
+          return;
+        } catch {
+          await btn.click({ force: true });
+          logger.debug("Replace button force clicked");
+          return;
+        }
       }
     }
     throw new Error("Replace button not found");

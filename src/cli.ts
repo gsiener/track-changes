@@ -170,13 +170,12 @@ program
         // Apply suggestions and new comments via browser (only option for suggestions)
         const needsBrowser = review.suggestions.length > 0 || review.newComments.length > 0;
         if (needsBrowser) {
-          console.log("   ✏️ Applying suggestions via browser...");
-          let context = session.getContext();
-          if (!context) {
-            context = await session.launch(true);
+          console.log("   ✏️ Applying suggestions via browser (agent-browser)...");
+          let client = session.getClient();
+          if (!client) {
+            client = await session.launch(true);
           }
-          const page = await context.newPage();
-          const writer = new DocsWriter(page);
+          const writer = new DocsWriter(client);
 
           await writer.navigateToDocument(buildDocsUrl(docId));
           await writer.enableSuggestionMode();
