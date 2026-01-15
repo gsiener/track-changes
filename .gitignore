@@ -8,8 +8,8 @@ dist/
 .env
 credentials.json
 
-# Playwright browser data
-playwright/user-data/
+# Browser session data
+agent-browser-data/
 
 # Logs and screenshots
 *.log
