@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { AgentBrowserClient } from "../src/browser/agent-browser-client.js";
 
 // Mock logger
@@ -12,6 +12,14 @@ vi.mock("../src/utils/logger.js", () => ({
 }));
 
 describe("snapshot-helpers", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   describe("TIMEOUTS", () => {
     it("should export all required timeout constants", async () => {
       const { TIMEOUTS } = await import("../src/browser/snapshot-helpers.js");
@@ -44,12 +52,15 @@ describe("snapshot-helpers", () => {
     it("should wait for the specified duration", async () => {
       const { wait } = await import("../src/browser/snapshot-helpers.js");
 
-      const start = Date.now();
-      await wait(50);
-      const duration = Date.now() - start;
+      const waitPromise = wait(50);
 
-      // Should have waited at least 40ms (allowing some tolerance)
-      expect(duration).toBeGreaterThanOrEqual(40);
+      // Timer should be pending
+      vi.advanceTimersByTime(49);
+      expect(vi.getTimerCount()).toBe(1);
+
+      // Advance past the wait time
+      vi.advanceTimersByTime(1);
+      await waitPromise;
     });
   });
 
@@ -151,7 +162,11 @@ describe("snapshot-helpers", () => {
         getLocatorFromRef: vi.fn().mockReturnValue(null),
       } as unknown as AgentBrowserClient;
 
-      await dismissDialogs(mockClient);
+      const dismissPromise = dismissDialogs(mockClient);
+
+      // Advance through all the waits
+      await vi.runAllTimersAsync();
+      await dismissPromise;
 
       // Should press Escape at least once
       expect(mockKeyboard.press).toHaveBeenCalledWith("Escape");
