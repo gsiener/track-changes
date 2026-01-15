@@ -10,6 +10,7 @@ credentials.json
 
 # Browser session data
 agent-browser-data/
+playwright/
 
 # Logs and screenshots
 *.log
