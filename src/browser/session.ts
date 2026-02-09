@@ -24,7 +24,7 @@ export class BrowserSession {
    * Loads saved session state if available.
    */
   async launch(headless: boolean = true): Promise<AgentBrowserClient> {
-    logger.info("Launching browser via agent-browser", { headless, userDataDir: USER_DATA_DIR });
+    logger.trace("Launching browser via agent-browser", { headless, userDataDir: USER_DATA_DIR });
 
     // Ensure data directory exists
     if (!existsSync(USER_DATA_DIR)) {
@@ -38,7 +38,7 @@ export class BrowserSession {
     const hasExistingSession = existsSync(storagePath);
 
     if (hasExistingSession) {
-      logger.info("Found saved session, will restore after launch");
+      logger.trace("Found saved session, will restore after launch");
     } else {
       logger.warn("No saved session found - you may need to log in");
     }
@@ -61,7 +61,7 @@ export class BrowserSession {
         // Set cookies from saved state
         if (parsed.cookies && parsed.cookies.length > 0) {
           await context.addCookies(parsed.cookies);
-          logger.info("Session cookies restored");
+          logger.trace("Session cookies restored");
         }
       } catch (err) {
         logger.warn("Failed to restore session state", { error: String(err) });
@@ -76,7 +76,7 @@ export class BrowserSession {
    * Returns the page for user interaction.
    */
   async launchForLogin(): Promise<Page> {
-    logger.info("Launching browser for manual login");
+    logger.trace("Launching browser for manual login");
 
     // Ensure data directory exists
     if (!existsSync(USER_DATA_DIR)) {
@@ -103,7 +103,7 @@ export class BrowserSession {
 
     const storagePath = this.getStorageStatePath();
     await this.client.saveStorageState(storagePath);
-    logger.info("Session saved", { path: storagePath });
+    logger.trace("Session saved", { path: storagePath });
   }
 
   /**
@@ -114,7 +114,7 @@ export class BrowserSession {
       await this.client.close();
       this.client = null;
     }
-    logger.info("Browser closed");
+    logger.trace("Browser closed");
   }
 
   /**

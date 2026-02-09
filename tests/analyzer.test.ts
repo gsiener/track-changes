@@ -4,6 +4,7 @@ import type { DocumentContent } from "../src/google/types.js";
 // Mock logger
 vi.mock("../src/utils/logger.js", () => ({
   logger: {
+    trace: vi.fn(),
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
@@ -308,7 +309,7 @@ describe("DocumentAnalyzer", () => {
     const analyzer = new DocumentAnalyzer(mockConfig);
     await analyzer.analyze(testDocument);
 
-    expect(logger.info).toHaveBeenCalledWith(
+    expect(logger.trace).toHaveBeenCalledWith(
       "API usage",
       expect.objectContaining({
         inputTokens: 1000,

@@ -31,8 +31,9 @@ program
   .description("Claude reviews Google Docs and makes suggested edits")
   .version("0.1.0")
   .argument("[url]", "Google Docs URL to review")
-  .option("-v, --verbose", "Enable verbose/debug logging")
-  .action(async (url: string | undefined, options: { verbose?: boolean }) => {
+  .option("-v, --verbose", "Enable verbose logging (debug level)")
+  .option("--trace", "Enable trace logging (all internal details)")
+  .action(async (url: string | undefined, options: { verbose?: boolean; trace?: boolean }) => {
     // If no URL provided and not a subcommand, show help
     if (!url) {
       program.help();
@@ -40,14 +41,16 @@ program
     }
 
     // Set log level
-    if (options.verbose) {
+    if (options.trace) {
+      logger.setLevel("trace");
+    } else if (options.verbose) {
       logger.setLevel("debug");
     }
 
     try {
       const startTime = Date.now();
       const config = loadConfig();
-      logger.info("Starting document review", { url });
+      logger.trace("Starting document review", { url });
 
       // Extract document ID from URL
       const docId = extractDocId(url);
@@ -57,7 +60,7 @@ program
         process.exit(1);
       }
 
-      logger.info("Document ID extracted", { docId });
+      logger.trace("Document ID extracted", { docId });
 
       // 1. Read the document
       console.log("\n🔍 Reading document...");
@@ -78,7 +81,7 @@ program
       }
 
       const readStart = Date.now();
-      logger.info("Fetching document via API...");
+      logger.trace("Fetching document via API...");
       const reader = new DocsReader(config);
       const document = await reader.fetchDocument(docId);
       const readDuration = Date.now() - readStart;
@@ -129,7 +132,7 @@ program
           console.log("   💬 Applying comment replies via API...");
           for (let i = 0; i < review.commentReplies.length; i++) {
             const reply = review.commentReplies[i];
-            logger.info(`Replying to comment ${i + 1}/${review.commentReplies.length}`);
+            logger.trace(`Replying to comment ${i + 1}/${review.commentReplies.length}`);
 
             try {
               // Match commentQuote to find the comment ID
@@ -155,7 +158,7 @@ program
                 reply.resolve
               );
               results.push({ type: "commentReply", success: true });
-              logger.info("Reply posted successfully", { commentId: matchingComment.id });
+              logger.trace("Reply posted successfully", { commentId: matchingComment.id });
             } catch (error) {
               results.push({
                 type: "commentReply",

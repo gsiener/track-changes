@@ -38,7 +38,7 @@ export class AgentBrowserClient {
       return;
     }
 
-    logger.info("Launching browser via agent-browser", {
+    logger.trace("Launching browser via agent-browser", {
       headless: options.headless ?? true,
       viewport: options.viewport,
     });
@@ -51,7 +51,7 @@ export class AgentBrowserClient {
     });
 
     this.launched = true;
-    logger.info("Browser launched successfully");
+    logger.trace("Browser launched successfully");
   }
 
   /**
@@ -125,7 +125,7 @@ export class AgentBrowserClient {
       throw new Error("Browser not launched. Call launch() first.");
     }
     await this.manager.saveStorageState(path);
-    logger.info("Storage state saved", { path });
+    logger.trace("Storage state saved", { path });
   }
 
   /**
@@ -152,7 +152,7 @@ export class AgentBrowserClient {
     if (this.launched) {
       await this.manager.close();
       this.launched = false;
-      logger.info("Browser closed");
+      logger.trace("Browser closed");
     }
   }
 }

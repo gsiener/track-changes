@@ -43,7 +43,7 @@ export class DocumentAnalyzer {
     document: DocumentContent,
     focusPrompt?: string
   ): Promise<ReviewResponse> {
-    logger.info("Sending document to Claude for analysis", {
+    logger.trace("Sending document to Claude for analysis", {
       title: document.title,
       bodyLength: document.body.length,
       commentCount: document.comments.length,
@@ -66,7 +66,7 @@ export class DocumentAnalyzer {
     const outputTokens = response.usage.output_tokens;
     const estimatedCost = (inputTokens * 0.003 + outputTokens * 0.015) / 1000;
 
-    logger.info("API usage", {
+    logger.trace("API usage", {
       model: "claude-sonnet-4-20250514",
       inputTokens,
       outputTokens,
@@ -113,7 +113,7 @@ export class DocumentAnalyzer {
       );
     }
 
-    logger.info("Analysis complete", {
+    logger.trace("Analysis complete", {
       suggestions: result.data.suggestions.length,
       replies: result.data.commentReplies.length,
       newComments: result.data.newComments.length,

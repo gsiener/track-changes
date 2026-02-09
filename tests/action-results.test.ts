@@ -12,6 +12,7 @@ import type { AgentBrowserClient } from "../src/browser/agent-browser-client.js"
 
 // Mock logger
 const mockLogger = {
+  trace: vi.fn(),
   debug: vi.fn(),
   info: vi.fn(),
   warn: vi.fn(),
@@ -127,11 +128,11 @@ describe("Action Results Tracking", () => {
       });
 
       // Logger should have been called for each suggestion
-      expect(mockLogger.info).toHaveBeenCalledWith(
+      expect(mockLogger.trace).toHaveBeenCalledWith(
         expect.stringContaining("Applying suggestion 1/2"),
         expect.any(Object)
       );
-      expect(mockLogger.info).toHaveBeenCalledWith(
+      expect(mockLogger.trace).toHaveBeenCalledWith(
         expect.stringContaining("Applying suggestion 2/2"),
         expect.any(Object)
       );
@@ -169,7 +170,7 @@ describe("Action Results Tracking", () => {
       );
 
       // But second suggestion should still be attempted
-      expect(mockLogger.info).toHaveBeenCalledWith(
+      expect(mockLogger.trace).toHaveBeenCalledWith(
         expect.stringContaining("Applying suggestion 2/2"),
         expect.any(Object)
       );
@@ -212,11 +213,11 @@ describe("Action Results Tracking", () => {
       });
 
       // Both suggestions and new comments should be attempted
-      expect(mockLogger.info).toHaveBeenCalledWith(
+      expect(mockLogger.trace).toHaveBeenCalledWith(
         expect.stringContaining("Applying suggestion"),
         expect.any(Object)
       );
-      expect(mockLogger.info).toHaveBeenCalledWith(
+      expect(mockLogger.trace).toHaveBeenCalledWith(
         expect.stringContaining("Adding new comment")
       );
     });
@@ -257,15 +258,15 @@ describe("Action Results Tracking", () => {
       });
 
       // All 3 suggestions should be logged
-      expect(mockLogger.info).toHaveBeenCalledWith(
+      expect(mockLogger.trace).toHaveBeenCalledWith(
         expect.stringContaining("1/3"),
         expect.any(Object)
       );
-      expect(mockLogger.info).toHaveBeenCalledWith(
+      expect(mockLogger.trace).toHaveBeenCalledWith(
         expect.stringContaining("2/3"),
         expect.any(Object)
       );
-      expect(mockLogger.info).toHaveBeenCalledWith(
+      expect(mockLogger.trace).toHaveBeenCalledWith(
         expect.stringContaining("3/3"),
         expect.any(Object)
       );

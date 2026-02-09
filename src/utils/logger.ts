@@ -1,13 +1,15 @@
-type LogLevel = "debug" | "info" | "warn" | "error";
+type LogLevel = "trace" | "debug" | "info" | "warn" | "error";
 
 const levelPriority: Record<LogLevel, number> = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
+  trace: 0,
+  debug: 1,
+  info: 2,
+  warn: 3,
+  error: 4,
 };
 
 const levelColors: Record<LogLevel, string> = {
+  trace: "\x1b[90m",
   debug: "\x1b[90m",
   info: "\x1b[36m",
   warn: "\x1b[33m",
@@ -41,6 +43,7 @@ function log(level: LogLevel, message: string, data?: Record<string, unknown>): 
 }
 
 export const logger = {
+  trace: (message: string, data?: Record<string, unknown>) => log("trace", message, data),
   debug: (message: string, data?: Record<string, unknown>) => log("debug", message, data),
   info: (message: string, data?: Record<string, unknown>) => log("info", message, data),
   warn: (message: string, data?: Record<string, unknown>) => log("warn", message, data),

@@ -58,7 +58,7 @@ export class DocsWriter {
   }
 
   async navigateToDocument(url: string): Promise<void> {
-    logger.info("Navigating to document", { url });
+    logger.trace("Navigating to document", { url });
     const page = this.client.getPage();
 
     await page.goto(url, { waitUntil: "load", timeout: 60000 });
@@ -70,7 +70,7 @@ export class DocsWriter {
   }
 
   async enableSuggestionMode(): Promise<void> {
-    logger.info("Enabling suggestion mode");
+    logger.trace("Enabling suggestion mode");
 
     await withRetry(async () => {
       await this.takeScreenshot("before-suggestion-mode");
@@ -102,14 +102,14 @@ export class DocsWriter {
       await wait(TIMEOUTS.BUTTON_ACTION);
     }, "Enable suggestion mode");
 
-    logger.info("Suggestion mode enabled");
+    logger.trace("Suggestion mode enabled");
   }
 
   async applyAllChanges(response: ReviewResponse): Promise<void> {
     // Apply text suggestions
     for (let i = 0; i < response.suggestions.length; i++) {
       const suggestion = response.suggestions[i];
-      logger.info(`Applying suggestion ${i + 1}/${response.suggestions.length}`, {
+      logger.trace(`Applying suggestion ${i + 1}/${response.suggestions.length}`, {
         findText: suggestion.findText.slice(0, 50),
       });
 
@@ -136,7 +136,7 @@ export class DocsWriter {
     // Add new comments
     for (let i = 0; i < response.newComments.length; i++) {
       const comment = response.newComments[i];
-      logger.info(`Adding new comment ${i + 1}/${response.newComments.length}`);
+      logger.trace(`Adding new comment ${i + 1}/${response.newComments.length}`);
 
       try {
         await this.newCommentAdder.addNewComment(comment);
@@ -153,7 +153,7 @@ export class DocsWriter {
       await mkdir(SCREENSHOTS_DIR, { recursive: true });
       const path = join(SCREENSHOTS_DIR, `${name}-${Date.now()}.png`);
       await page.screenshot({ path, fullPage: true });
-      logger.info("Screenshot saved", { path });
+      logger.trace("Screenshot saved", { path });
     } catch (error) {
       logger.warn("Failed to save screenshot", { error: String(error) });
     }

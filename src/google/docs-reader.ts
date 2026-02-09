@@ -14,7 +14,7 @@ export class DocsReader {
   }
 
   async fetchDocument(documentId: string): Promise<DocumentContent> {
-    logger.info("Fetching document content", { documentId });
+    logger.trace("Fetching document content", { documentId });
 
     // Fetch document content
     const docResponse = await this.docsClient.documents.get({
@@ -26,7 +26,7 @@ export class DocsReader {
     const title = doc.title ?? "Untitled";
     const body = this.extractBodyText(doc.body);
 
-    logger.info("Document fetched", { title, bodyLength: body.length });
+    logger.trace("Document fetched", { title, bodyLength: body.length });
 
     // Fetch comments
     const comments = await this.fetchComments(documentId);
@@ -87,7 +87,7 @@ export class DocsReader {
   }
 
   private async fetchComments(documentId: string): Promise<CommentThread[]> {
-    logger.info("Fetching comments", { documentId });
+    logger.trace("Fetching comments", { documentId });
 
     try {
       const response = await this.driveClient.comments.list({
@@ -97,7 +97,7 @@ export class DocsReader {
       });
 
       const comments = response.data.comments ?? [];
-      logger.info("Comments fetched", { count: comments.length });
+      logger.trace("Comments fetched", { count: comments.length });
 
       return comments.map((comment): CommentThread => ({
         id: comment.id ?? "",
@@ -124,7 +124,7 @@ export class DocsReader {
     replyText: string,
     resolve: boolean = false
   ): Promise<void> {
-    logger.info("Creating comment reply via Drive API", {
+    logger.trace("Creating comment reply via Drive API", {
       documentId,
       commentId,
       willResolve: resolve,
@@ -140,7 +140,7 @@ export class DocsReader {
       },
     });
 
-    logger.info("Reply created successfully");
+    logger.trace("Reply created successfully");
 
     // Resolve if requested
     if (resolve) {
@@ -149,7 +149,7 @@ export class DocsReader {
   }
 
   async resolveComment(documentId: string, commentId: string): Promise<void> {
-    logger.info("Resolving comment via Drive API", { documentId, commentId });
+    logger.trace("Resolving comment via Drive API", { documentId, commentId });
 
     await this.driveClient.comments.update({
       fileId: documentId,
@@ -160,6 +160,6 @@ export class DocsReader {
       },
     });
 
-    logger.info("Comment resolved successfully");
+    logger.trace("Comment resolved successfully");
   }
 }

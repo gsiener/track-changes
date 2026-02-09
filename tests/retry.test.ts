@@ -4,6 +4,7 @@ import { withRetry } from "../src/browser/retry.js";
 // Mock logger to avoid console output during tests
 vi.mock("../src/utils/logger.js", () => ({
   logger: {
+    trace: vi.fn(),
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
