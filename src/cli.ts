@@ -49,6 +49,8 @@ program
       logger.setLevel("debug");
     }
 
+    let session: BrowserSession | null = null;
+
     try {
       const startTime = Date.now();
       const config = loadConfig();
@@ -88,7 +90,7 @@ program
       const document = await reader.fetchDocument(docId);
       const readDuration = Date.now() - readStart;
 
-      const session = new BrowserSession();
+      session = new BrowserSession();
 
       console.log(`   📄 "${document.title}"`);
       console.log(`   📊 ${document.body.length} chars, ${document.comments.length} comments`);
@@ -256,8 +258,6 @@ program
         console.log("\n✅ No changes needed.");
       }
 
-      await session.close();
-
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error("Review failed", { error: errorMessage });
@@ -275,6 +275,14 @@ program
         }
       }
       process.exit(1);
+    } finally {
+      if (session) {
+        try {
+          await session.close();
+        } catch (error) {
+          logger.warn("Failed to close browser session", { error: String(error) });
+        }
+      }
     }
   });
 

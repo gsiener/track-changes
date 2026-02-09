@@ -63,6 +63,37 @@ export class BrowserSession {
           await context.addCookies(parsed.cookies);
           logger.trace("Session cookies restored");
         }
+
+        // Restore localStorage per origin if present
+        if (parsed.origins && Array.isArray(parsed.origins)) {
+          for (const originState of parsed.origins) {
+            if (!originState?.origin || !originState.localStorage?.length) continue;
+
+            try {
+              await page.goto(originState.origin, { waitUntil: "domcontentloaded", timeout: 30000 });
+              await page.evaluate((entries: Array<{ name: string; value: string }>) => {
+                for (const entry of entries) {
+                  localStorage.setItem(entry.name, entry.value);
+                }
+              }, originState.localStorage);
+              logger.trace("LocalStorage restored for origin", {
+                origin: originState.origin,
+                entries: originState.localStorage.length,
+              });
+            } catch (error) {
+              logger.warn("Failed to restore localStorage for origin", {
+                origin: originState.origin,
+                error: String(error),
+              });
+            }
+          }
+
+          try {
+            await page.goto("about:blank");
+          } catch {
+            // Ignore navigation cleanup failures
+          }
+        }
       } catch (err) {
         logger.warn("Failed to restore session state", { error: String(err) });
       }
