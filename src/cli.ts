@@ -10,6 +10,7 @@ import { DocumentAnalyzer } from "./claude/analyzer.js";
 import { BrowserSession } from "./browser/session.js";
 import { DocsWriter } from "./browser/docs-writer.js";
 import type { DocumentContent } from "./google/types.js";
+import { matchCommentForReply } from "./utils/comment-matcher.js";
 
 // Action result tracking for partial failure handling
 interface ActionResult {
@@ -135,22 +136,18 @@ program
             logger.trace(`Replying to comment ${i + 1}/${review.commentReplies.length}`);
 
             try {
-              // Match commentQuote to find the comment ID
-              const matchingComment = document.comments.find((c) =>
-                c.content.toLowerCase().includes(reply.commentQuote.toLowerCase()) ||
-                reply.commentQuote.toLowerCase().includes(c.content.toLowerCase().slice(0, 30))
-              );
-
-              if (!matchingComment) {
+              const match = matchCommentForReply(document.comments, reply.commentQuote);
+              if (!match.comment) {
                 results.push({
                   type: "commentReply",
                   success: false,
-                  error: `Could not find comment matching: "${reply.commentQuote.slice(0, 30)}..."`,
+                  error: match.error ?? `Could not find comment matching: "${reply.commentQuote.slice(0, 30)}..."`,
                 });
-                logger.error(`Could not find comment matching: "${reply.commentQuote.slice(0, 50)}..."`);
+                logger.error(match.error ?? `Could not find comment matching: "${reply.commentQuote.slice(0, 50)}..."`);
                 continue;
               }
 
+              const matchingComment = match.comment;
               await reader.replyToComment(
                 docId,
                 matchingComment.id,

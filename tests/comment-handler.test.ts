@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { matchCommentForReply } from "../src/utils/comment-matcher.js";
 
 /**
  * Comment Handler Tests
@@ -130,54 +131,66 @@ describe("Comment Handler (Drive API)", () => {
 
   describe("CLI integration", () => {
     it("should match commentQuote to document comments", () => {
-      // This tests the matching logic used in cli.ts
       const documentComments = [
-        { id: "c1", content: "Please fix this typo" },
-        { id: "c2", content: "Add more details here" },
-        { id: "c3", content: "This section needs revision" },
+        { id: "c1", content: "Please fix this typo", resolved: false },
+        { id: "c2", content: "Add more details here", resolved: false },
+        { id: "c3", content: "This section needs revision", resolved: false },
       ];
 
       const commentQuote = "fix this typo";
 
-      // Match logic from cli.ts
-      const matchingComment = documentComments.find(
-        (c) =>
-          c.content.toLowerCase().includes(commentQuote.toLowerCase()) ||
-          commentQuote.toLowerCase().includes(c.content.toLowerCase().slice(0, 30))
-      );
+      const match = matchCommentForReply(documentComments as any, commentQuote);
 
-      expect(matchingComment).toBeTruthy();
-      expect(matchingComment?.id).toBe("c1");
+      expect(match.comment).toBeTruthy();
+      expect(match.comment?.id).toBe("c1");
     });
 
     it("should handle case-insensitive matching", () => {
       const documentComments = [
-        { id: "c1", content: "UPPERCASE COMMENT" },
+        { id: "c1", content: "UPPERCASE COMMENT", resolved: false },
       ];
 
       const commentQuote = "uppercase comment";
 
-      const matchingComment = documentComments.find(
-        (c) =>
-          c.content.toLowerCase().includes(commentQuote.toLowerCase())
-      );
+      const match = matchCommentForReply(documentComments as any, commentQuote);
 
-      expect(matchingComment?.id).toBe("c1");
+      expect(match.comment?.id).toBe("c1");
     });
 
-    it("should return undefined when no matching comment found", () => {
+    it("should return null when no matching comment found", () => {
       const documentComments = [
-        { id: "c1", content: "Some comment" },
+        { id: "c1", content: "Some comment", resolved: false },
       ];
 
       const commentQuote = "completely different text";
 
-      const matchingComment = documentComments.find(
-        (c) =>
-          c.content.toLowerCase().includes(commentQuote.toLowerCase())
-      );
+      const match = matchCommentForReply(documentComments as any, commentQuote);
 
-      expect(matchingComment).toBeUndefined();
+      expect(match.comment).toBeNull();
+      expect(match.error).toContain("No unresolved comment matches quote");
+    });
+
+    it("should ignore resolved comments", () => {
+      const documentComments = [
+        { id: "c1", content: "Please fix this", resolved: true },
+        { id: "c2", content: "Please fix this", resolved: false },
+      ];
+
+      const match = matchCommentForReply(documentComments as any, "Please fix this");
+
+      expect(match.comment?.id).toBe("c2");
+    });
+
+    it("should return error when multiple unresolved comments match", () => {
+      const documentComments = [
+        { id: "c1", content: "Please fix this", resolved: false },
+        { id: "c2", content: "Please fix this", resolved: false },
+      ];
+
+      const match = matchCommentForReply(documentComments as any, "Please fix this");
+
+      expect(match.comment).toBeNull();
+      expect(match.error).toContain("Multiple unresolved comments match quote");
     });
   });
 });
