@@ -11,6 +11,7 @@ import { BrowserSession } from "./browser/session.js";
 import { DocsWriter } from "./browser/docs-writer.js";
 import type { DocumentContent } from "./google/types.js";
 import { matchCommentForReply } from "./utils/comment-matcher.js";
+import { prepareSuggestionsForApply } from "./utils/suggestion-validation.js";
 
 // Action result tracking for partial failure handling
 interface ActionResult {
@@ -102,16 +103,37 @@ program
 
       console.log(`   ⏱️  Analyzed in ${formatDuration(analyzeDuration)}`);
 
+      // Validate suggestions against document body before browser automation
+      const suggestionPrep = prepareSuggestionsForApply(document.body, review.suggestions);
+      const suggestionsToApply = suggestionPrep.suggestions;
+      const skippedSuggestions = suggestionPrep.failures.length;
+
       // Show what Claude found
-      const totalActions = review.suggestions.length + review.commentReplies.length + review.newComments.length;
+      const totalActions = suggestionsToApply.length + review.commentReplies.length + review.newComments.length;
       console.log(`   Found ${totalActions} actions to take`);
+      if (skippedSuggestions > 0) {
+        console.log(`   ⚠️  Skipped ${skippedSuggestions} suggestions due to ambiguous or missing matches`);
+      }
 
       // Track results for summary
       const results: ActionResult[] = [];
+      if (suggestionPrep.failures.length > 0) {
+        for (const failure of suggestionPrep.failures) {
+          results.push({
+            type: "suggestion",
+            success: false,
+            error: failure.reason,
+          });
+          logger.warn("Skipping suggestion due to match validation failure", {
+            reason: failure.reason,
+            findText: failure.suggestion.findText.slice(0, 50),
+          });
+        }
+      }
 
-      if (review.suggestions.length > 0) {
+      if (suggestionsToApply.length > 0) {
         console.log("\n📝 Suggestions:");
-        for (const s of review.suggestions) {
+        for (const s of suggestionsToApply) {
           console.log(`  • "${s.findText.slice(0, 40)}..." → "${s.replaceWith.slice(0, 40)}..."`);
         }
       }
@@ -168,7 +190,7 @@ program
         }
 
         // Apply suggestions and new comments via browser (only option for suggestions)
-        const needsBrowser = review.suggestions.length > 0 || review.newComments.length > 0;
+        const needsBrowser = suggestionsToApply.length > 0 || review.newComments.length > 0;
         if (needsBrowser) {
           console.log("   ✏️ Applying suggestions via browser (agent-browser)...");
           let client = session.getClient();
@@ -182,14 +204,14 @@ program
 
           // Only pass suggestions and new comments (comment replies already done via API)
           await writer.applyAllChanges({
-            suggestions: review.suggestions,
+            suggestions: suggestionsToApply,
             commentReplies: [], // Already handled via API
             newComments: review.newComments,
           });
 
           // Track browser operation results (best effort - DocsWriter logs errors)
           // For now, assume success since DocsWriter doesn't return results
-          for (let i = 0; i < review.suggestions.length; i++) {
+          for (let i = 0; i < suggestionsToApply.length; i++) {
             results.push({ type: "suggestion", success: true });
           }
           for (let i = 0; i < review.newComments.length; i++) {
@@ -210,7 +232,7 @@ program
         const commentSuccess = commentResults.filter((r) => r.success).length;
 
         const anyFailures =
-          suggestionSuccess < review.suggestions.length ||
+          suggestionSuccess < suggestionsToApply.length + skippedSuggestions ||
           replySuccess < review.commentReplies.length ||
           commentSuccess < review.newComments.length;
 
@@ -234,6 +256,9 @@ program
           console.log("\n✅ Done! Check your document:");
           console.log(`   🔗 ${buildDocsUrl(docId)}`);
         }
+      } else if (skippedSuggestions > 0) {
+        console.log("\n⚠️  No changes applied due to ambiguous or missing matches.");
+        console.log(`   🔗 ${buildDocsUrl(docId)}`);
       } else {
         console.log("\n✅ No changes needed.");
       }
