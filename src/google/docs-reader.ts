@@ -90,16 +90,26 @@ export class DocsReader {
     logger.trace("Fetching comments", { documentId });
 
     try {
-      const response = await this.driveClient.comments.list({
-        fileId: documentId,
-        fields: "comments(id,content,author,resolved,quotedFileContent,replies)",
-        includeDeleted: false,
-      });
+      const allComments: drive_v3.Schema$Comment[] = [];
+      let pageToken: string | undefined;
 
-      const comments = response.data.comments ?? [];
-      logger.trace("Comments fetched", { count: comments.length });
+      do {
+        const response = await this.driveClient.comments.list({
+          fileId: documentId,
+          fields: "nextPageToken,comments(id,content,author,resolved,quotedFileContent,replies)",
+          includeDeleted: false,
+          pageSize: 100,
+          ...(pageToken ? { pageToken } : {}),
+        });
 
-      return comments.map((comment): CommentThread => ({
+        const comments = response.data.comments ?? [];
+        allComments.push(...comments);
+        pageToken = response.data.nextPageToken ?? undefined;
+      } while (pageToken);
+
+      logger.trace("Comments fetched", { count: allComments.length });
+
+      return allComments.map((comment): CommentThread => ({
         id: comment.id ?? "",
         anchorText: comment.quotedFileContent?.value ?? "",
         content: comment.content ?? "",

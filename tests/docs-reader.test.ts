@@ -395,9 +395,59 @@ describe("DocsReader", () => {
       });
       expect(mockCommentsList).toHaveBeenCalledWith({
         fileId: "doc-id-123",
-        fields: "comments(id,content,author,resolved,quotedFileContent,replies)",
+        fields: "nextPageToken,comments(id,content,author,resolved,quotedFileContent,replies)",
         includeDeleted: false,
+        pageSize: 100,
       });
+    });
+
+    it("should paginate comments when nextPageToken is present", async () => {
+      mockDocsGet.mockResolvedValue({
+        data: {
+          title: "Doc with many comments",
+          body: { content: [] },
+        },
+      });
+      mockCommentsList
+        .mockResolvedValueOnce({
+          data: {
+            comments: [
+              { id: "c1", content: "First page", resolved: false },
+            ],
+            nextPageToken: "next-page",
+          },
+        })
+        .mockResolvedValueOnce({
+          data: {
+            comments: [
+              { id: "c2", content: "Second page", resolved: false },
+            ],
+          },
+        });
+
+      const { DocsReader } = await import("../src/google/docs-reader.js");
+      const reader = new DocsReader(mockConfig);
+      const document = await reader.fetchDocument("doc123");
+
+      expect(document.comments).toHaveLength(2);
+      expect(document.comments[0].id).toBe("c1");
+      expect(document.comments[1].id).toBe("c2");
+
+      expect(mockCommentsList).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          fileId: "doc123",
+          pageSize: 100,
+        })
+      );
+      expect(mockCommentsList).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          fileId: "doc123",
+          pageToken: "next-page",
+          pageSize: 100,
+        })
+      );
     });
 
     it("should default title to Untitled when missing", async () => {
