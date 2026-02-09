@@ -48,6 +48,12 @@ const SELECTOR_FALLBACKS = {
   ],
 };
 
+export interface BrowserActionResult {
+  type: "suggestion" | "newComment";
+  success: boolean;
+  error?: string;
+}
+
 export class DocsWriter {
   private suggestionApplier: SuggestionApplier;
   private newCommentAdder: NewCommentAdder;
@@ -105,7 +111,9 @@ export class DocsWriter {
     logger.trace("Suggestion mode enabled");
   }
 
-  async applyAllChanges(response: ReviewResponse): Promise<void> {
+  async applyAllChanges(response: ReviewResponse): Promise<BrowserActionResult[]> {
+    const results: BrowserActionResult[] = [];
+
     // Apply text suggestions
     for (let i = 0; i < response.suggestions.length; i++) {
       const suggestion = response.suggestions[i];
@@ -115,12 +123,14 @@ export class DocsWriter {
 
       try {
         await this.suggestionApplier.applySuggestion(suggestion);
+        results.push({ type: "suggestion", success: true });
       } catch (error) {
         logger.error(`Failed to apply suggestion ${i + 1}`, {
           error: String(error),
           findText: suggestion.findText.slice(0, 50),
         });
         await this.takeScreenshot(`suggestion-${i + 1}-failed`);
+        results.push({ type: "suggestion", success: false, error: String(error) });
       }
     }
 
@@ -140,11 +150,15 @@ export class DocsWriter {
 
       try {
         await this.newCommentAdder.addNewComment(comment);
+        results.push({ type: "newComment", success: true });
       } catch (error) {
         logger.error(`Failed to add comment ${i + 1}`, { error: String(error) });
         await this.takeScreenshot(`new-comment-${i + 1}-failed`);
+        results.push({ type: "newComment", success: false, error: String(error) });
       }
     }
+
+    return results;
   }
 
   private async takeScreenshot(name: string): Promise<void> {

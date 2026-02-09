@@ -203,20 +203,13 @@ program
           await writer.enableSuggestionMode();
 
           // Only pass suggestions and new comments (comment replies already done via API)
-          await writer.applyAllChanges({
+          const browserResults = await writer.applyAllChanges({
             suggestions: suggestionsToApply,
             commentReplies: [], // Already handled via API
             newComments: review.newComments,
           });
 
-          // Track browser operation results (best effort - DocsWriter logs errors)
-          // For now, assume success since DocsWriter doesn't return results
-          for (let i = 0; i < suggestionsToApply.length; i++) {
-            results.push({ type: "suggestion", success: true });
-          }
-          for (let i = 0; i < review.newComments.length; i++) {
-            results.push({ type: "newComment", success: true });
-          }
+          results.push(...browserResults);
         }
 
         const applyDuration = Date.now() - applyStart;

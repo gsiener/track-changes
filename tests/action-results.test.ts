@@ -118,7 +118,7 @@ describe("Action Results Tracking", () => {
       const writer = new DocsWriter(mockClient);
 
       // Apply multiple suggestions - all should succeed
-      await writer.applyAllChanges({
+      const results = await writer.applyAllChanges({
         suggestions: [
           { findText: "old1", replaceWith: "new1" },
           { findText: "old2", replaceWith: "new2" },
@@ -136,15 +136,15 @@ describe("Action Results Tracking", () => {
         expect.stringContaining("Applying suggestion 2/2"),
         expect.any(Object)
       );
+
+      expect(results).toHaveLength(2);
+      expect(results.every((result) => result.success)).toBe(true);
     });
 
     it("should continue processing after individual failures", async () => {
-      // First suggestion will fail
-      let callCount = 0;
-      mockFillByMatcher.mockImplementation(async () => {
-        callCount++;
-        if (callCount <= 2) {
-          // First two calls (find input and replace input for first suggestion)
+      // First suggestion will fail, second should succeed
+      mockFillByMatcher.mockImplementation(async (_client: any, _matchers: any, value: string) => {
+        if (value === "fail") {
           throw new Error("Element not found");
         }
         return undefined;
@@ -154,7 +154,7 @@ describe("Action Results Tracking", () => {
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
       const writer = new DocsWriter(mockClient);
 
-      await writer.applyAllChanges({
+      const results = await writer.applyAllChanges({
         suggestions: [
           { findText: "fail", replaceWith: "fail" },
           { findText: "succeed", replaceWith: "succeed" },
@@ -174,6 +174,9 @@ describe("Action Results Tracking", () => {
         expect.stringContaining("Applying suggestion 2/2"),
         expect.any(Object)
       );
+
+      expect(results).toHaveLength(2);
+      expect(results.filter((result) => !result.success)).toHaveLength(1);
     });
 
     it("should track failed suggestions with error details", async () => {
@@ -183,7 +186,7 @@ describe("Action Results Tracking", () => {
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
       const writer = new DocsWriter(mockClient);
 
-      await writer.applyAllChanges({
+      const results = await writer.applyAllChanges({
         suggestions: [{ findText: "will fail", replaceWith: "never" }],
         commentReplies: [],
         newComments: [],
@@ -200,13 +203,16 @@ describe("Action Results Tracking", () => {
       // Screenshot should be taken
       const mockPage = mockClient.getPage();
       expect(mockPage.screenshot).toHaveBeenCalled();
+
+      expect(results).toHaveLength(1);
+      expect(results[0].success).toBe(false);
     });
 
     it("should process suggestions and new comments (comment replies via API)", async () => {
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
       const writer = new DocsWriter(mockClient);
 
-      await writer.applyAllChanges({
+      const results = await writer.applyAllChanges({
         suggestions: [{ findText: "old", replaceWith: "new" }],
         commentReplies: [], // Empty - handled via Drive API
         newComments: [{ anchorText: "anchor", comment: "new comment" }],
@@ -220,13 +226,15 @@ describe("Action Results Tracking", () => {
       expect(mockLogger.trace).toHaveBeenCalledWith(
         expect.stringContaining("Adding new comment")
       );
+
+      expect(results).toHaveLength(2);
     });
 
     it("should warn when commentReplies are passed (should be handled via API)", async () => {
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
       const writer = new DocsWriter(mockClient);
 
-      await writer.applyAllChanges({
+      const results = await writer.applyAllChanges({
         suggestions: [],
         commentReplies: [
           { commentQuote: "test", reply: "reply", resolve: false },
@@ -239,6 +247,8 @@ describe("Action Results Tracking", () => {
         expect.stringContaining("Comment replies passed to DocsWriter"),
         expect.any(Object)
       );
+
+      expect(results).toHaveLength(0);
     });
   });
 
@@ -247,7 +257,7 @@ describe("Action Results Tracking", () => {
       const { DocsWriter } = await import("../src/browser/docs-writer.js");
       const writer = new DocsWriter(mockClient);
 
-      await writer.applyAllChanges({
+      const results = await writer.applyAllChanges({
         suggestions: [
           { findText: "old1", replaceWith: "new1" },
           { findText: "old2", replaceWith: "new2" },
@@ -270,6 +280,8 @@ describe("Action Results Tracking", () => {
         expect.stringContaining("3/3"),
         expect.any(Object)
       );
+
+      expect(results).toHaveLength(3);
     });
   });
 });
