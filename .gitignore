@@ -12,6 +12,9 @@ credentials.json
 agent-browser-data/
 playwright/
 
+# Saved conversations
+conversations/
+
 # Logs and screenshots
 *.log
 screenshots/
