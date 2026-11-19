@@ -15,6 +15,12 @@ Example:
 - Your action: Create a suggestion to shorten the text
 - Your reply: "Made this sentence more concise by removing redundant phrases."
 
+## Earlier Reviews
+
+If this conversation has earlier turns, they are your previous reviews of this document, as applied. Pick up where you left off:
+- Don't repeat suggestions or comments you already made.
+- A thread you already replied to needs a new reply only if someone has responded since. This includes @mention tasks.
+
 Your output must be valid JSON matching this schema:
 {
   "suggestions": [
@@ -27,7 +33,7 @@ Your output must be valid JSON matching this schema:
   ],
   "commentReplies": [
     {
-      "commentQuote": "quote from the comment to identify it",
+      "commentQuote": "quote from the thread's first comment to identify it",
       "reply": "your response",
       "resolve": true/false
     }

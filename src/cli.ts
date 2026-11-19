@@ -7,6 +7,7 @@ import { logger } from "./utils/logger.js";
 import { extractDocId, buildDocsUrl } from "./utils/url.js";
 import { DocsReader } from "./google/docs-reader.js";
 import { DocumentAnalyzer } from "./claude/analyzer.js";
+import { loadConversation, saveReview } from "./claude/conversation.js";
 import { BrowserSession } from "./browser/session.js";
 import { DocsWriter } from "./browser/docs-writer.js";
 import type { DocumentContent } from "./google/types.js";
@@ -100,7 +101,7 @@ program
       console.log("\n🤖 Analyzing with Claude...");
       const analyzeStart = Date.now();
       const analyzer = new DocumentAnalyzer(config);
-      const review = await analyzer.analyze(document);
+      const review = await analyzer.analyze(document, undefined, loadConversation(docId));
       const analyzeDuration = Date.now() - analyzeStart;
 
       console.log(`   ⏱️  Analyzed in ${formatDuration(analyzeDuration)}`);
@@ -221,6 +222,15 @@ program
         const suggestionResults = results.filter((r) => r.type === "suggestion");
         const replyResults = results.filter((r) => r.type === "commentReply");
         const commentResults = results.filter((r) => r.type === "newComment");
+
+        // Remember what was applied (skipped suggestions come first in the results)
+        if (results.some((r) => r.success)) {
+          saveReview(docId, {
+            suggestions: suggestionsToApply.filter((_, i) => suggestionResults[skippedSuggestions + i].success),
+            commentReplies: review.commentReplies.filter((_, i) => replyResults[i].success),
+            newComments: review.newComments.filter((_, i) => commentResults[i].success),
+          });
+        }
 
         const suggestionSuccess = suggestionResults.filter((r) => r.success).length;
         const replySuccess = replyResults.filter((r) => r.success).length;

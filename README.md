@@ -83,6 +83,7 @@ When you run the CLI with a Google Doc URL:
 3. **Analyzes** the document with Claude
 4. **Makes** suggested edits as native Google Docs suggestions
 5. **Replies** to comment threads with what it did
+6. **Remembers** what it applied, so the next run on that document continues the conversation
 
 ## Development
 
@@ -112,6 +113,7 @@ src/
 │   └── types.ts
 ├── claude/
 │   ├── analyzer.ts          # Claude integration
+│   ├── conversation.ts      # Per-document conversation, replayed on the next run
 │   ├── prompts.ts           # System/user prompts
 │   └── types.ts             # ReviewResponse interface
 ├── browser/
@@ -135,7 +137,6 @@ See [GitHub Issues](https://github.com/gsiener/track-changes/issues) for planned
 Key upcoming features:
 - Web dashboard for easier collaboration
 - Real-time presence indicators
-- Conversation continuity with Claude
 - Review history tracking
 
 ## License

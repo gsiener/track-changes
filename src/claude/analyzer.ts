@@ -41,7 +41,8 @@ export class DocumentAnalyzer {
 
   async analyze(
     document: DocumentContent,
-    focusPrompt?: string
+    focusPrompt?: string,
+    conversation: Anthropic.MessageParam[] = []
   ): Promise<ReviewResponse> {
     logger.trace("Sending document to Claude for analysis", {
       title: document.title,
@@ -54,6 +55,7 @@ export class DocumentAnalyzer {
       max_tokens: 4096,
       system: buildSystemPrompt(),
       messages: [
+        ...conversation,
         {
           role: "user",
           content: buildUserPrompt(document, focusPrompt),

@@ -16,6 +16,12 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("resolve");
   });
 
+  it("should explain how to continue from earlier reviews", () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain("your previous reviews of this document");
+    expect(prompt).toContain("only if someone has responded since");
+  });
+
   it("should request JSON output", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("valid JSON");

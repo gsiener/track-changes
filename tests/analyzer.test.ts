@@ -350,6 +350,31 @@ describe("DocumentAnalyzer", () => {
     );
   });
 
+  it("should replay the earlier conversation before the new prompt", async () => {
+    mockCreate.mockResolvedValue({
+      usage: { input_tokens: 100, output_tokens: 50 },
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({ suggestions: [], commentReplies: [], newComments: [] }),
+        },
+      ],
+    });
+    const conversation = [
+      { role: "user" as const, content: "Please review this document. [Earlier version omitted]" },
+      { role: "assistant" as const, content: '{"suggestions":[],"commentReplies":[],"newComments":[]}' },
+    ];
+
+    const { DocumentAnalyzer } = await import("../src/claude/analyzer.js");
+    const analyzer = new DocumentAnalyzer(mockConfig);
+    await analyzer.analyze(testDocument, undefined, conversation);
+
+    expect(mockCreate.mock.calls[0][0].messages).toEqual([
+      ...conversation,
+      { role: "user", content: expect.stringContaining("Test Document") },
+    ]);
+  });
+
   it("should handle optional fields in suggestions", async () => {
     const mockResponse = {
       usage: { input_tokens: 100, output_tokens: 50 },
